@@ -125,7 +125,7 @@ export default function CalendarPanel({ onEventSelect, selectedEvent }) {
   // Poll for high-impact events released in the last 15 min — auto-trigger analysis
   async function checkJustReleased() {
     try {
-      const data = await api.getJustReleased({ minutes: 15 })
+      const data = await api.getJustReleased({ minutes: 45 })
       const events = data.events || []
       if (events.length === 0) return
 

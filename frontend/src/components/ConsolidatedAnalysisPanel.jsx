@@ -99,7 +99,7 @@ export default function ConsolidatedAnalysisPanel({ onActiveChange }) {
 
   async function poll() {
     try {
-      const result = await api.getConsolidatedAnalysis({ minutes: 15 })
+      const result = await api.getConsolidatedAnalysis({ minutes: 45 })
       if (result.consolidated) {
         setData(result)
         if (!activeRef.current) {
