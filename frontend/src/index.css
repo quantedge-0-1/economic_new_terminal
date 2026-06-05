@@ -1,0 +1,124 @@
+/* Bloomberg Terminal Dark Theme */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-primary:    #080d14;
+  --bg-panel:      #0d1521;
+  --bg-card:       #111c2e;
+  --bg-hover:      #162035;
+  --border:        #1e2d44;
+  --border-bright: #2a3f5f;
+
+  --text-primary:  #d4e4f7;
+  --text-dim:      #6b8aad;
+  --text-muted:    #3d5470;
+
+  --green:         #00d4aa;
+  --green-dim:     #00a882;
+  --red:           #ff4455;
+  --red-dim:       #cc3344;
+  --amber:         #ffaa00;
+  --amber-dim:     #cc8800;
+  --blue:          #4090ff;
+  --purple:        #9966ff;
+
+  --font-mono: 'Consolas', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
+  --font-sans: 'Segoe UI', system-ui, sans-serif;
+
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
+
+body { min-height: 100vh; overflow-x: hidden; }
+
+#root { min-height: 100vh; display: flex; flex-direction: column; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-panel); }
+::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+
+/* ── Utilities ── */
+.text-green  { color: var(--green); }
+.text-red    { color: var(--red); }
+.text-amber  { color: var(--amber); }
+.text-blue   { color: var(--blue); }
+.text-dim    { color: var(--text-dim); }
+.text-muted  { color: var(--text-muted); }
+.text-bold   { font-weight: 700; }
+
+.badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.badge-green  { background: rgba(0,212,170,0.15); color: var(--green); border: 1px solid rgba(0,212,170,0.3); }
+.badge-red    { background: rgba(255,68,85,0.15);  color: var(--red);   border: 1px solid rgba(255,68,85,0.3); }
+.badge-amber  { background: rgba(255,170,0,0.15);  color: var(--amber); border: 1px solid rgba(255,170,0,0.3); }
+.badge-blue   { background: rgba(64,144,255,0.15); color: var(--blue);  border: 1px solid rgba(64,144,255,0.3); }
+.badge-purple { background: rgba(153,102,255,0.15);color: var(--purple);border: 1px solid rgba(153,102,255,0.3); }
+
+/* ── Panel ── */
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  flex-shrink: 0;
+}
+
+.panel-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+/* ── Button ── */
+.btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border-bright);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-green { border-color: var(--green-dim); color: var(--green); }
+.btn-green:hover { background: rgba(0,212,170,0.1); }
+
+/* ── Flashing animation for new alerts ── */
+@keyframes flash { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+.flash { animation: flash 1s ease-in-out 3; }
+
+/* ── Pulse for live indicator ── */
+@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+.pulse { animation: pulse 2s infinite; }

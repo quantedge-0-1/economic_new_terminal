@@ -1,0 +1,27 @@
+# Web framework
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+
+# Database
+sqlalchemy==2.0.36
+aiosqlite==0.20.0
+
+# Settings
+pydantic-settings==2.6.1
+
+# HTTP client
+httpx==0.28.1
+
+# AI
+anthropic==0.40.0
+
+# Data sources
+feedparser==6.0.11
+beautifulsoup4==4.12.3
+defusedxml==0.7.1
+
+# Prices fallback (when Twelve Data unavailable)
+yfinance>=1.4.0
+
+# Utilities
+python-dateutil==2.9.0
