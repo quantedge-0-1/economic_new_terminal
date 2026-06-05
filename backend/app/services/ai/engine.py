@@ -120,8 +120,8 @@ Clasificación:  {surprise_label.upper()} — {beat_label}
 Genera el análisis institucional completo siguiendo el formato del sistema."""
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        message = client.messages.create(
+        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        message = await client.messages.create(
             model=settings.ai_model,
             max_tokens=settings.ai_max_tokens,
             system=SYSTEM_PROMPT,
@@ -166,9 +166,9 @@ Resumen: {article.get('summary', '')[:500]}
 En máximo 3 líneas: impacto en USD, XAUUSD y sentimiento de riesgo. Tono Bloomberg. Español."""
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",  # Fast model for news flashes
+        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        msg = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
             max_tokens=250,
             messages=[{"role": "user", "content": prompt}],
         )

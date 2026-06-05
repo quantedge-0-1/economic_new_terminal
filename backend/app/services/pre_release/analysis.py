@@ -77,8 +77,8 @@ async def get_ai_analysis(
     )
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        resp = client.messages.create(
+        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        resp = await client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=450,
             system=_SYSTEM,

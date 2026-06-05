@@ -43,6 +43,8 @@ _SERIES_DEF = [
     (50,  "PAYEMS",          "US Nonfarm Payrolls",     "K",     "high",   "employment", "chg",    1),
     # Unemployment Rate — raw level (already %)
     (50,  "UNRATE",          "US Unemployment Rate",    "%",     "high",   "employment", "level",  0),
+    # Average Hourly Earnings MoM — same NFP release (release_id=50), 1-period % change
+    (50,  "AHETPI",          "US Average Hourly Earnings MoM", "%", "high", "employment", "yoy",  1),
     # Real GDP growth — annualised QoQ %, series already in % terms
     (53,  "A191RL1Q225SBEA", "US GDP Growth QoQ",       "%",     "high",   "gdp",        "level",  0),
     # Retail Sales MoM — change vs previous month

@@ -195,8 +195,8 @@ async def analyze_consolidated(events: list[dict]) -> dict:
     )
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        msg = client.messages.create(
+        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        msg = await client.messages.create(
             model=settings.ai_model,
             max_tokens=settings.ai_max_tokens,
             system=_SYSTEM,

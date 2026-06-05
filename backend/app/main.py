@@ -12,6 +12,7 @@ logger = get_logger(__name__)
 
 _filler_task:   asyncio.Task | None = None
 _calendar_task: asyncio.Task | None = None
+_price_task:    asyncio.Task | None = None
 
 
 async def _memory_filler_loop() -> None:
@@ -31,6 +32,27 @@ async def _memory_filler_loop() -> None:
         except Exception as exc:
             logger.warning("[MemoryFiller] error: %s", exc)
         await asyncio.sleep(600)  # Run every 10 minutes
+
+
+async def _price_poller_loop() -> None:
+    """
+    Keep _price_history buffer alive regardless of whether the frontend is open.
+    Runs every 45s — matches prices_cache_ttl so each iteration fetches fresh data.
+    Without this, PreRelease scanner and ISS/MCS go stale when the browser is closed.
+    """
+    from app.services.prices.engine import get_all_prices
+    from app.services.prices.history import record_prices
+
+    await asyncio.sleep(10)
+    while True:
+        try:
+            prices = await get_all_prices()
+            record_prices(prices)
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.warning("[PricePoller] error: %s", exc)
+        await asyncio.sleep(45)
 
 
 async def _calendar_refresh_loop() -> None:
@@ -60,13 +82,14 @@ async def _calendar_refresh_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _filler_task, _calendar_task
+    global _filler_task, _calendar_task, _price_task
     logger.info("Starting Economic News Terminal...")
     await init_db()
     _filler_task   = asyncio.create_task(_memory_filler_loop())
     _calendar_task = asyncio.create_task(_calendar_refresh_loop())
+    _price_task    = asyncio.create_task(_price_poller_loop())
     yield
-    for task in (_filler_task, _calendar_task):
+    for task in (_filler_task, _calendar_task, _price_task):
         if task and not task.done():
             task.cancel()
     logger.info("Shutdown complete")
