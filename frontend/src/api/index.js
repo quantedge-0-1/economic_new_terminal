@@ -28,6 +28,8 @@ export const api = {
   // AI Analysis
   analyzeEvent: (data) => post('/analysis/event', data),
   getAnalysisHistory: () => get('/analysis/history'),
+  getConsolidatedAnalysis: (params) => get('/analysis/consolidated', params),
+  postConsolidatedAnalysis: (data)  => post('/analysis/consolidated', data),
 
   // Prices
   getLivePrices: () => get('/prices/live'),

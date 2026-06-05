@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import Header from './components/Header.jsx'
 import CalendarPanel from './components/CalendarPanel.jsx'
 import AnalysisPanel from './components/AnalysisPanel.jsx'
+import ConsolidatedAnalysisPanel from './components/ConsolidatedAnalysisPanel.jsx'
 import PricesPanel from './components/PricesPanel.jsx'
 import AlertsPanel from './components/AlertsPanel.jsx'
 import DivergencePanel from './components/DivergencePanel.jsx'
@@ -14,6 +15,7 @@ export default function App() {
   const [surpriseData, setSurpriseData] = useState(null)
   const [backendOk, setBackendOk] = useState(false)
   const [alertCount, setAlertCount] = useState(0)
+  const [consolidatedActive, setConsolidatedActive] = useState(false)
 
   useEffect(() => {
     const check = async () => {
@@ -58,12 +60,15 @@ export default function App() {
           />
         </div>
 
-        {/* Center: AI Analysis */}
+        {/* Center: Consolidated (NFP day / multi-release) OR single-event analysis */}
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          <AnalysisPanel
-            event={selectedEvent}
-            onSurpriseComputed={setSurpriseData}
-          />
+          <ConsolidatedAnalysisPanel onActiveChange={setConsolidatedActive} />
+          {!consolidatedActive && (
+            <AnalysisPanel
+              event={selectedEvent}
+              onSurpriseComputed={setSurpriseData}
+            />
+          )}
         </div>
 
         {/* Right: Prices */}

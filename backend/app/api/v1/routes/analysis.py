@@ -2,16 +2,20 @@
 POST /api/v1/analysis/event        — AI analysis for a specific event
 POST /api/v1/analysis/news-flash   — Quick take on a news article
 GET  /api/v1/analysis/history      — Recent analyses (cached)
+GET  /api/v1/analysis/consolidated — Auto-detect + analyze simultaneous releases
+POST /api/v1/analysis/consolidated — Manual consolidated analysis for explicit events
 """
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import cache
 from app.core.logger import get_logger
+from app.db.session import get_db
 from app.services.ai.engine import analyze_event, analyze_news_flash
 
 logger = get_logger(__name__)
@@ -79,3 +83,140 @@ async def analyze_news_flash_endpoint(req: NewsFlashRequest):
 async def get_analysis_history(limit: int = 10):
     """Last N AI analyses generated this session."""
     return {"analyses": _analysis_history[:limit], "count": len(_analysis_history)}
+
+
+@router.get("/consolidated")
+async def get_consolidated_analysis(
+    minutes: int = Query(15, ge=5, le=60),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Auto-fetch high-impact events released in the last N minutes, group by
+    5-minute windows, and return consolidated institutional analysis when
+    2+ events released simultaneously. Returns consolidated=False otherwise.
+    """
+    from datetime import UTC, timedelta
+    from sqlalchemy import and_, or_, select
+
+    from app.db.models import EconomicEvent
+    from app.services.calendar.engine import _event_to_dict
+    from app.services.consolidated_analysis_service import (
+        analyze_consolidated,
+        calculate_weighted_impacts,
+        get_event_weight,
+        group_simultaneous_events,
+    )
+
+    cache_key = f"analysis:consolidated_auto:{minutes}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    now   = datetime.now(UTC)
+    since = now - timedelta(minutes=minutes)
+
+    rows = (await db.execute(
+        select(EconomicEvent)
+        .where(and_(
+            EconomicEvent.event_at  >= since,
+            EconomicEvent.event_at  <= now,
+            EconomicEvent.actual.isnot(None),
+            or_(
+                EconomicEvent.is_high_impact == True,
+                EconomicEvent.importance     == "high",
+            ),
+        ))
+        .order_by(EconomicEvent.event_at.desc())
+        .limit(10)
+    )).scalars().all()
+
+    if not rows:
+        result = {"consolidated": False, "events": [], "event_count": 0}
+        cache.set(cache_key, result, 30)
+        return result
+
+    events = [_event_to_dict(r) for r in rows]
+    groups = group_simultaneous_events(events, window_minutes=5)
+    multi  = [g for g in groups if len(g) >= 2]
+
+    if not multi:
+        result = {"consolidated": False, "events": events, "event_count": len(events)}
+        cache.set(cache_key, result, 30)
+        return result
+
+    # Largest simultaneous group
+    group = max(multi, key=len)
+
+    # Enrich with weight + inline surprise scores
+    for ev in group:
+        ev["weight"] = get_event_weight(ev["event_name"])
+        actual   = ev.get("actual")
+        forecast = ev.get("forecast")
+        if actual is not None and forecast is not None and forecast != 0:
+            sp = round((actual - forecast) / abs(forecast) * 100, 2)
+        else:
+            sp = None
+        ev["surprise_pct"] = sp
+        if sp is None:
+            ev["surprise_label"] = "in_line"
+        elif sp >= 10:
+            ev["surprise_label"] = "large_beat"
+        elif sp >= 3:
+            ev["surprise_label"] = "beat"
+        elif sp <= -10:
+            ev["surprise_label"] = "large_miss"
+        elif sp <= -3:
+            ev["surprise_label"] = "miss"
+        else:
+            ev["surprise_label"] = "in_line"
+
+    impacts  = calculate_weighted_impacts(group)
+    analysis = await analyze_consolidated(group)
+
+    result = {
+        "consolidated":     True,
+        "event_count":      len(group),
+        "events":           group,
+        "weighted_impacts": impacts,
+        "analyzed_at":      datetime.now(UTC).isoformat(),
+        **analysis,
+    }
+    cache.set(cache_key, result, 30)
+    return result
+
+
+class ConsolidatedRequest(BaseModel):
+    events: List[EventAnalysisRequest]
+
+
+@router.post("/consolidated")
+async def post_consolidated_analysis(req: ConsolidatedRequest):
+    """
+    Manual consolidated analysis — pass explicit list of simultaneous events.
+    Useful for testing with arbitrary data (e.g. today's NFP batch).
+    """
+    from app.services.consolidated_analysis_service import (
+        analyze_consolidated,
+        calculate_weighted_impacts,
+        get_event_weight,
+    )
+
+    enriched = []
+    for ev in req.events:
+        d = ev.model_dump()
+        d["weight"] = get_event_weight(ev.event_name)
+        if ev.actual is not None and ev.forecast is not None and ev.forecast != 0:
+            d["surprise_pct"] = round((ev.actual - ev.forecast) / abs(ev.forecast) * 100, 2)
+        enriched.append(d)
+
+    impacts  = calculate_weighted_impacts(enriched)
+    analysis = await analyze_consolidated(enriched)
+
+    return {
+        "consolidated":     True,
+        "event_count":      len(enriched),
+        "events":           enriched,
+        "weighted_impacts": impacts,
+        "analyzed_at":      datetime.now(timezone.utc).isoformat(),
+        **analysis,
+    }
