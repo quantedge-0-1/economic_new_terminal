@@ -17,12 +17,12 @@ from app.services.pre_release.engine import PreReleaseResult
 logger = get_logger(__name__)
 
 _SYSTEM = (
-    "Eres un trader macro senior en un banco de inversión de primer nivel. "
-    "Analizas condiciones pre-release usando Smart Money Concepts. "
-    "Respondes ÚNICAMENTE en español. "
-    "Tu respuesta es EXACTAMENTE 5 líneas numeradas (1. 2. 3. 4. 5.), "
-    "sin markdown, sin texto adicional fuera de esas 5 líneas. "
-    "Habla como un professional institucional: directo, preciso, sin adornos."
+    "Eres un trader macro en un banco Tier-1. Respondes ÚNICAMENTE en Español. "
+    "Exactamente 3 líneas. Sin introducciones. Sin markdown. Sin texto fuera de esas 3 líneas. "
+    "FORMATO EXACTO: "
+    "ESTADO: [descontado/no descontado/trampa]. "
+    "POSICIONAMIENTO: [qué parecen estar haciendo las instituciones en 1 oración]. "
+    "PLAN: [acción operativa concreta en 1 línea]."
 )
 
 
@@ -58,29 +58,19 @@ async def get_ai_analysis(
     )
 
     user_msg = (
-        f"EVENTO INMINENTE: {event_name}  (T-{minutes_to_release} minutos)\n"
-        f"Instrumento: {signals.symbol}   Precio actual: {signals.current_price}\n"
-        f"Desplazamiento 10m: {disp_str}  Zona precio: {signals.price_zone}\n"
-        f"BSL (max 30m): {signals.bsl}   SSL (min 30m): {signals.ssl}   "
-        f"Equilibrio: {signals.equilibrium}\n"
-        f"Sweep liquidez: {swept_str}\n"
-        f"Consolidando: {'SÍ (<0.15% rango 20m)' if signals.is_consolidating else 'NO'}\n"
-        f"Bias direccional: {signals.directional_bias:+.2f}   "
-        f"Discount Score: {signals.discount_score:+.0f}/100\n"
-        f"Estado institucional: {signals.state_label}\n\n"
-        f"Responde exactamente:\n"
-        f"1. Estado actual: ¿el mercado ha descontado el evento o no?\n"
-        f"2. Posicionamiento institucional aparente\n"
-        f"3. Reacción esperada POST-release dado el posicionamiento\n"
-        f"4. Niveles clave a vigilar (BSL {signals.bsl} / EQ {signals.equilibrium} / SSL {signals.ssl})\n"
-        f"5. Acción concreta recomendada al trader"
+        f"Evento: {event_name} | T-{minutes_to_release}min | {signals.symbol} @ {signals.current_price}\n"
+        f"Zona: {signals.price_zone} | Bias: {signals.directional_bias:+.2f} | "
+        f"Discount: {signals.discount_score:+.0f}/100\n"
+        f"BSL: {signals.bsl} | EQ: {signals.equilibrium} | SSL: {signals.ssl}\n"
+        f"Sweep: {swept_str} | Consolidando: {'SÍ' if signals.is_consolidating else 'NO'} | "
+        f"Estado: {signals.state_label}"
     )
 
     try:
         client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
         resp = await client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=450,
+            max_tokens=220,
             system=_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],
         )

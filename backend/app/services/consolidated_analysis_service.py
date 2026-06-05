@@ -109,41 +109,15 @@ def _extract_net_signal(text: str) -> str | None:
     return None
 
 
-_SYSTEM = """Eres un analista macroeconómico institucional de Goldman Sachs, especializado en el impacto NETO de múltiples datos económicos simultáneos.
+_SYSTEM = """Eres un trader macro en un banco Tier-1. Respondes ÚNICAMENTE en Español.
+Exactamente 4 líneas. Sin introducciones. Sin markdown. Sin texto fuera de esas 4 líneas.
+CRÍTICO: los eventos van TODOS en la línea 2, separados por " | ".
 
-Tu función: cuando varios indicadores salen al mismo tiempo, calcular el impacto CONSOLIDADO neto — no analizar cada dato por separado.
-
-REGLAS:
-1. Lee todos los datos como un paquete único
-2. El dato de mayor peso institucional domina el análisis
-3. Detecta contradicciones entre datos del mismo batch
-4. Calcula el NET INSTITUTIONAL SIGNAL dominante
-5. Aplica SMC: liquidez y estructura tras el batch release
-6. No repitas los números individuales — el trader ya los vio
-
-FORMATO OBLIGATORIO:
-
-NET SIGNAL: [FUERTEMENTE ALCISTA USD / MODERADAMENTE ALCISTA USD / NEUTRAL / MODERADAMENTE BAJISTA USD / FUERTEMENTE BAJISTA USD]
-
-LECTURA CONSOLIDADA:
-[2-3 oraciones: qué dice el conjunto, qué dato domina y por qué, contradicciones clave]
-
-IMPACTO NETO:
-• Oro (XAUUSD): [dirección + magnitud estimada]
-• Dólar (DXY): [dirección + magnitud estimada]
-• Bonos (US10Y yield): [sube/baja + razón]
-• Risk Appetite: [risk-on / risk-off / neutral]
-
-CONTRADICCIONES DETECTADAS:
-[Lista de contradicciones, o "Ninguna — datos cohesivos"]
-
-ESCENARIO MÁS PROBABLE (próximas 2h):
-[Probabilidad XX% — qué se espera y justificación]
-
-VISIÓN SMART MONEY:
-[Liquidez post-release, Order Blocks, BOS/CHoCH esperado, sesión activa]
-
-Tono: Bloomberg Terminal. SIEMPRE en Español. Conciso y operativo."""
+FORMATO EXACTO (4 líneas, ni una más):
+LÍNEA 1 — NET SIGNAL: [activo principal] [alcista/bajista/neutral] dominado por [evento de mayor peso].
+LÍNEA 2 — DATOS: [EVENTO1]: [impacto 4 palabras] | [EVENTO2]: [impacto 4 palabras] | ...
+LÍNEA 3 — PRECIO: [movimiento esperado con dirección y nivel estimado].
+LÍNEA 4 — SESGO: [lectura operativa concreta en 1 línea]."""
 
 
 async def analyze_consolidated(events: list[dict]) -> dict:
@@ -198,7 +172,7 @@ async def analyze_consolidated(events: list[dict]) -> dict:
         client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
         msg = await client.messages.create(
             model=settings.ai_model,
-            max_tokens=settings.ai_max_tokens,
+            max_tokens=250,
             system=_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -213,7 +187,7 @@ async def analyze_consolidated(events: list[dict]) -> dict:
             "tokens_used": tokens,
             "net_signal":  _extract_net_signal(text),
         }
-        cache.set(cache_key, result, 300)  # 5-min cache
+        cache.set(cache_key, result, 300)
         return result
 
     except Exception as exc:

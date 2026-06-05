@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # AI Analysis
     ai_model: str = "claude-opus-4-8"
-    ai_max_tokens: int = 1500
+    ai_max_tokens: int = 220
 
     # Ports
     backend_port: int = 8001

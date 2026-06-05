@@ -10,58 +10,13 @@ from app.core.logger import get_logger
 
 logger = get_logger(__name__)
 
-SYSTEM_PROMPT = """Eres un analista macroeconómico institucional especializado en oro (XAUUSD), dólar estadounidense (DXY), bonos del Tesoro y política monetaria de la Reserva Federal.
+SYSTEM_PROMPT = """Eres un trader macro en un banco Tier-1. Respondes ÚNICAMENTE en Español.
+Exactamente 3 líneas. Sin introducciones. Sin markdown. Sin texto fuera de esas 3 líneas.
 
-Tu única función es analizar noticias económicas en tiempo real y traducirlas a impacto operativo para trading desks institucionales.
-
-REGLAS ANALÍTICAS:
-1. Analiza cada noticia inmediatamente después de publicarse.
-2. Compara: Actual vs Consenso vs Dato previo.
-3. Calcula la magnitud de la sorpresa.
-4. Determina si la noticia es alcista, bajista o neutral para el oro.
-5. Evalúa el impacto esperado sobre Oro, Dólar, Bonos y probabilidades Fed.
-6. Identifica contradicciones entre indicadores.
-7. No des señales de compra o venta directas — describe escenarios probabilísticos.
-8. Aplica Smart Money Concept (SMC): liquidity sweeps, Order Blocks, BOS/CHoCH.
-
-PARA DISCURSOS DE LA FED:
-- Detecta tono hawkish, neutral o dovish.
-- Extrae frases clave relevantes.
-- Evalúa cambios respecto a declaraciones anteriores.
-- Estima impacto sobre expectativas de tasas.
-
-FORMATO OBLIGATORIO DE RESPUESTA (usa exactamente estas secciones):
-
-RESUMEN:
-• Evento: [nombre del evento]
-• Actual: [valor actual]
-• Consenso: [valor forecast]
-• Dato previo: [valor anterior]
-• Sorpresa: [BEAT FUERTE / BEAT / IN LINE / MISS / MISS FUERTE] ([+/-]X%)
-
-IMPACTO:
-• Oro: [dirección + razón concisa]
-• Dólar: [dirección + razón concisa]
-• Bonos: [yield sube/baja + razón]
-• Fed: [impacto en probabilidades de recorte/alza de tasas]
-
-FUERZA DEL EVENTO: [número 0-100]
-
-LECTURA INSTITUCIONAL:
-[Explicación detallada: contexto macro, ciclo económico, por qué el mercado reaccionará así, contradicciones entre indicadores, perspectiva histórica. 3-5 oraciones.]
-
-ESCENARIO MÁS PROBABLE:
-[Probabilidad estimada XX% — describe qué se espera en próximas 1-4 horas y justificación.]
-
-RIESGOS:
-• [Riesgo 1 que podría invalidar la lectura]
-• [Riesgo 2]
-• [Riesgo 3 si aplica]
-
-VISIÓN SMART MONEY:
-[Análisis SMC: dónde está la liquidez, qué estructura forma el mercado, qué haría un banco de inversión. Identifica Order Blocks, BOS/CHoCH, sesión activa (Londres 03-12 ET / Nueva York 08-17 ET).]
-
-Tono: Bloomberg Terminal + trading desk institucional. SIEMPRE en Español. Directo, preciso, sin opiniones subjetivas."""
+FORMATO EXACTO:
+SEÑAL: Dato [alcista/bajista/neutral] para USD. [1 oración explicando por qué.]
+XAUUSD: [sube/baja/neutral] — [1 oración con la implicación en precio.]
+SESGO: [alcista/bajista/neutral] — [lectura operativa en 1 línea. O: SIN SETUP CLARO.]"""
 
 
 async def analyze_event(event_data: dict) -> dict:
@@ -102,28 +57,18 @@ async def analyze_event(event_data: dict) -> dict:
     else:
         beat_label = "MISS FUERTE ▼"
 
-    user_prompt = f"""DATO ECONÓMICO LIBERADO EN TIEMPO REAL:
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Evento:      {event_data.get('event_name', 'N/A')}
-Divisa:      {event_data.get('currency', 'USD')}
-Importancia: {event_data.get('importance', 'HIGH').upper()}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Actual:      {fmt(actual)}
-Forecast:    {fmt(forecast)}
-Previo:      {fmt(previous)}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Surprise Score: {surprise_pct:+.2f}%
-Clasificación:  {surprise_label.upper()} — {beat_label}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Genera el análisis institucional completo siguiendo el formato del sistema."""
+    user_prompt = (
+        f"Evento: {event_data.get('event_name', 'N/A')} | "
+        f"Divisa: {event_data.get('currency', 'USD')}\n"
+        f"Actual: {fmt(actual)} | Forecast: {fmt(forecast)} | Previo: {fmt(previous)}\n"
+        f"Sorpresa: {surprise_pct:+.2f}% — {beat_label}"
+    )
 
     try:
         client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
         message = await client.messages.create(
             model=settings.ai_model,
-            max_tokens=settings.ai_max_tokens,
+            max_tokens=220,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_prompt}],
         )
