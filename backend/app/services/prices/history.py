@@ -55,6 +55,12 @@ def get_price_change_pct(symbol: str, seconds_back: int) -> float | None:
     return (current_price - past_price) / past_price * 100
 
 
+def get_latest_price(symbol: str) -> float | None:
+    """Most recent recorded price for a symbol, or None if no history."""
+    q = _price_history.get(symbol)
+    return q[-1][1] if q else None
+
+
 def history_depth_seconds() -> dict[str, float]:
     """How many seconds of history we have per symbol."""
     now = time.monotonic()

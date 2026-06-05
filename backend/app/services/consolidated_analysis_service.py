@@ -100,32 +100,35 @@ def calculate_weighted_impacts(events: list[dict]) -> dict[str, float]:
 
 
 def _extract_net_signal(text: str) -> str | None:
-    """Parse the NET SIGNAL: line from analysis output."""
+    """Parse the SEÑAL: line from analysis output."""
     for line in text.split("\n"):
         stripped = line.strip()
-        if stripped.upper().startswith("NET SIGNAL:"):
-            signal = stripped[len("NET SIGNAL:"):].strip()
+        upper = stripped.upper()
+        if upper.startswith("SEÑAL:") or upper.startswith("SENAL:"):
+            signal = stripped[stripped.index(":") + 1:].strip()
             return signal or None
     return None
 
 
 _SYSTEM = """Eres un trader macro en un banco Tier-1. Respondes ÚNICAMENTE en Español.
-Exactamente 4 líneas. Sin introducciones. Sin markdown. Sin texto fuera de esas 4 líneas.
-CRÍTICO: los eventos van TODOS en la línea 2, separados por " | ".
+Exactamente 4 líneas. Sin markdown. Sin líneas en blanco. Texto plano.
+Copia los SCORES exactos del input en la línea 2. Usa el precio actual como ancla para los niveles.
 
-FORMATO EXACTO (4 líneas, ni una más):
-LÍNEA 1 — NET SIGNAL: [activo principal] [alcista/bajista/neutral] dominado por [evento de mayor peso].
-LÍNEA 2 — DATOS: [EVENTO1]: [impacto 4 palabras] | [EVENTO2]: [impacto 4 palabras] | ...
-LÍNEA 3 — PRECIO: [movimiento esperado con dirección y nivel estimado].
-LÍNEA 4 — SESGO: [lectura operativa concreta en 1 línea]."""
+FORMATO (4 líneas exactas):
+SEÑAL: [ALCISTA/BAJISTA/NEUTRAL] [ORO/USD] — [evento dominante] [LARGE BEAT/BEAT/IN LINE/MISS] [+/-X%] + [N] eventos
+SCORES: USD [+/-N] | XAUUSD [+/-N] | BONDS [+/-N] | RISK [+/-N]
+PRECIO: [dirección] hacia [nivel]. Retroceso a [nivel] es la entrada.
+ACCIÓN: [LONG/SHORT/ESPERAR] en [nivel] | Stop [nivel] | TP [nivel] | R:R [ratio]"""
 
 
-async def analyze_consolidated(events: list[dict]) -> dict:
+async def analyze_consolidated(events: list[dict], impacts: dict | None = None) -> dict:
     """
     Generate one consolidated institutional analysis for N simultaneous events.
 
-    events: list of dicts with keys: event_name, actual, forecast, previous,
-            unit, currency, weight, surprise_pct, surprise_label.
+    events:  list of dicts with keys: event_name, actual, forecast, previous,
+             unit, currency, weight, surprise_pct, surprise_label.
+    impacts: pre-computed weighted impact scores from calculate_weighted_impacts().
+             If None, scores are recomputed here.
     """
     ids = sorted(str(ev.get("id", ev["event_name"])) for ev in events)
     cache_key = f"analysis:consolidated:{':'.join(ids)}"
@@ -141,38 +144,51 @@ async def analyze_consolidated(events: list[dict]) -> dict:
             "net_signal": None,
         }
 
-    sorted_ev = sorted(events, key=lambda e: e.get("weight", 3), reverse=True)
+    from app.services.prices.history import get_latest_price
 
-    lines = []
+    if impacts is None:
+        impacts = calculate_weighted_impacts(events)
+
+    scores_line = (
+        f"USD {impacts.get('USD', 0):+.0f} | "
+        f"XAUUSD {impacts.get('Gold', 0):+.0f} | "
+        f"BONDS {impacts.get('Bond', 0):+.0f} | "
+        f"RISK {impacts.get('Risk', 0):+.0f}"
+    )
+
+    xauusd_price = get_latest_price("XAUUSD")
+    price_ctx = (
+        f"Precio actual XAUUSD: {xauusd_price:,.2f}"
+        if xauusd_price
+        else "Precio XAUUSD: no disponible — escribe SIN DATOS en PRECIO y ACCIÓN"
+    )
+
+    sorted_ev = sorted(events, key=lambda e: e.get("weight", 3), reverse=True)
+    event_lines = []
     for ev in sorted_ev:
-        w          = ev.get("weight", 3)
-        sp         = ev.get("surprise_pct")
-        unit       = ev.get("unit") or ""
-        actual_str   = f"{ev.get('actual')}{unit}" if ev.get("actual") is not None else "N/D"
-        forecast_str = f"{ev.get('forecast')}{unit}" if ev.get("forecast") is not None else "N/D"
-        sp_str       = f"{sp:+.2f}%" if sp is not None else "N/A"
-        label        = (ev.get("surprise_label") or "N/A").upper()
-        lines.append(
-            f"  [{w}/10] {ev['event_name']}: "
-            f"Actual={actual_str} | Forecast={forecast_str} | "
-            f"Surprise={sp_str} ({label})"
+        sp   = ev.get("surprise_pct")
+        unit = ev.get("unit") or ""
+        actual_str = f"{ev.get('actual')}{unit}" if ev.get("actual") is not None else "N/D"
+        sp_str     = f"{sp:+.2f}%" if sp is not None else "N/A"
+        label      = (ev.get("surprise_label") or "N/A").upper().replace("_", " ")
+        event_lines.append(
+            f"  [{ev.get('weight', 3)}/10] {ev['event_name']}: "
+            f"Actual={actual_str} | Sorpresa={sp_str} ({label})"
         )
 
     n = len(events)
     prompt = (
-        f"BATCH DE DATOS ECONÓMICOS — {n} RELEASES SIMULTÁNEOS\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{chr(10).join(lines)}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"Estos {n} indicadores se publicaron en la misma ventana de 5 minutos.\n"
-        f"Genera el análisis institucional CONSOLIDADO del impacto neto."
+        f"{n} RELEASES SIMULTÁNEOS:\n"
+        f"{chr(10).join(event_lines)}\n"
+        f"SCORES (copia exacto en línea 2): {scores_line}\n"
+        f"{price_ctx}"
     )
 
     try:
         client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
         msg = await client.messages.create(
             model=settings.ai_model,
-            max_tokens=250,
+            max_tokens=settings.ai_max_tokens,
             system=_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )

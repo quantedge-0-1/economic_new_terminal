@@ -57,8 +57,8 @@ async def analyze_event_endpoint(req: EventAnalysisRequest):
     result["event_name"] = req.event_name
     result["analyzed_at"] = datetime.now(timezone.utc).isoformat()
 
-    # Cache for 10 min (same event won't change)
-    cache.set(cache_key, result, 600)
+    if result.get("tokens_used", 0) > 0:
+        cache.set(cache_key, result, 600)
 
     # Keep last 20 analyses in memory for history
     _analysis_history.insert(0, result)
@@ -171,7 +171,7 @@ async def get_consolidated_analysis(
             ev["surprise_label"] = "in_line"
 
     impacts  = calculate_weighted_impacts(group)
-    analysis = await analyze_consolidated(group)
+    analysis = await analyze_consolidated(group, impacts=impacts)
 
     result = {
         "consolidated":     True,
