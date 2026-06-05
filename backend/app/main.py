@@ -10,7 +10,8 @@ from app.db.session import init_db
 
 logger = get_logger(__name__)
 
-_filler_task: asyncio.Task | None = None
+_filler_task:   asyncio.Task | None = None
+_calendar_task: asyncio.Task | None = None
 
 
 async def _memory_filler_loop() -> None:
@@ -32,15 +33,42 @@ async def _memory_filler_loop() -> None:
         await asyncio.sleep(600)  # Run every 10 minutes
 
 
+async def _calendar_refresh_loop() -> None:
+    """
+    Background task: auto-refresh calendar from FRED + scraper every 5 minutes.
+    Critical for picking up actuals automatically when economic data is released.
+    """
+    from app.db.session import db_session
+    from app.services.calendar.engine import CalendarEngine
+
+    engine = CalendarEngine()
+    await asyncio.sleep(15)  # Wait for DB init before first run
+    while True:
+        try:
+            async with db_session() as db:
+                result = await engine.refresh(db)
+                logger.info(
+                    "[CalendarRefresh] inserted=%d updated=%d skipped=%d",
+                    result["inserted"], result["updated"], result["skipped"],
+                )
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.warning("[CalendarRefresh] error: %s", exc)
+        await asyncio.sleep(300)  # Every 5 minutes
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _filler_task
+    global _filler_task, _calendar_task
     logger.info("Starting Economic News Terminal...")
     await init_db()
-    _filler_task = asyncio.create_task(_memory_filler_loop())
+    _filler_task   = asyncio.create_task(_memory_filler_loop())
+    _calendar_task = asyncio.create_task(_calendar_refresh_loop())
     yield
-    if _filler_task and not _filler_task.done():
-        _filler_task.cancel()
+    for task in (_filler_task, _calendar_task):
+        if task and not task.done():
+            task.cancel()
     logger.info("Shutdown complete")
 
 

@@ -79,6 +79,51 @@ async def get_high_impact_window(
     }
 
 
+@router.get("/just-released")
+async def get_just_released(
+    minutes: int = Query(15, ge=1, le=60),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    High-impact events released in the last N minutes with actual values.
+    Short cache (30s) — used by frontend for auto-analysis triggering.
+    """
+    from datetime import UTC, datetime, timedelta
+    from sqlalchemy import and_, or_, select
+    from app.db.models import EconomicEvent
+
+    cache_key = f"cal:just_released:{minutes}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    now   = datetime.now(UTC)
+    since = now - timedelta(minutes=minutes)
+
+    rows = (await db.execute(
+        select(EconomicEvent)
+        .where(
+            and_(
+                EconomicEvent.event_at  >= since,
+                EconomicEvent.event_at  <= now,
+                EconomicEvent.actual.isnot(None),
+                or_(
+                    EconomicEvent.is_high_impact == True,
+                    EconomicEvent.importance     == "high",
+                ),
+            )
+        )
+        .order_by(EconomicEvent.event_at.desc())
+        .limit(5)
+    )).scalars().all()
+
+    from app.services.calendar.engine import _event_to_dict
+    events = [_event_to_dict(r) for r in rows]
+    result = {"events": events, "count": len(events)}
+    cache.set(cache_key, result, 30)  # 30s cache — needs to be fresh for auto-trigger
+    return result
+
+
 @router.post("/refresh")
 async def trigger_refresh(
     lookahead_days: int = Query(14, ge=1, le=30),

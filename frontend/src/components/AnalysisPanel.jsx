@@ -83,7 +83,7 @@ export default function AnalysisPanel({ event, onSurpriseComputed }) {
 
   useEffect(() => {
     if (!event) return
-    const key = event.event_name + event.event_at
+    const key = event.event_name + event.event_at + String(event.actual ?? '')
     if (prevEvent.current === key) return
     prevEvent.current = key
 

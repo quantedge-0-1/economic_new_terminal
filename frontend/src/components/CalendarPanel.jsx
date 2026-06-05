@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { api } from '../api/index.js'
 import { useInterval } from '../hooks/useInterval.js'
 
@@ -99,6 +99,10 @@ export default function CalendarPanel({ onEventSelect, selectedEvent }) {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState({ importance: null, tab: 'upcoming' })
   const [refreshing, setRefreshing] = useState(false)
+  const [autoSelected, setAutoSelected] = useState(null)  // key of last auto-selected event
+
+  // Track which "just released" events we've already auto-selected
+  const seenReleasedRef = useRef(new Set())
 
   const CURRENCIES = 'EUR,USD,GBP,CAD'
 
@@ -118,8 +122,33 @@ export default function CalendarPanel({ onEventSelect, selectedEvent }) {
     }
   }
 
+  // Poll for high-impact events released in the last 15 min — auto-trigger analysis
+  async function checkJustReleased() {
+    try {
+      const data = await api.getJustReleased({ minutes: 15 })
+      const events = data.events || []
+      if (events.length === 0) return
+
+      // Most recent first — pick the first one we haven't seen yet
+      for (const ev of events) {
+        const key = ev.event_name + ev.event_at + String(ev.actual ?? '')
+        if (!seenReleasedRef.current.has(key)) {
+          seenReleasedRef.current.add(key)
+          // Auto-select: switch to RELEASED tab and trigger analysis
+          setFilter(f => ({ ...f, tab: 'recent' }))
+          onEventSelect(ev)
+          setAutoSelected(key)
+          break  // One auto-selection per poll cycle
+        }
+      }
+    } catch {
+      // Silent fail
+    }
+  }
+
   useEffect(() => { loadEvents() }, [filter.tab, filter.importance])
   useInterval(loadEvents, 60_000)
+  useInterval(checkJustReleased, 30_000)  // Hot-detect new releases every 30s
 
   async function handleRefresh() {
     setRefreshing(true)
@@ -146,6 +175,14 @@ export default function CalendarPanel({ onEventSelect, selectedEvent }) {
       <div className="panel-header">
         <span className="panel-title">📅 ECONOMIC CALENDAR</span>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {autoSelected && (
+            <span style={{
+              fontSize: 9, color: 'var(--green)', letterSpacing: 0.5,
+              animation: 'pulse 2s infinite',
+            }}>
+              ⚡ AUTO
+            </span>
+          )}
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{events.length} events</span>
           <button
             className="btn"

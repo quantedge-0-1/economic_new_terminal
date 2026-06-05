@@ -20,9 +20,10 @@ async function post(path, body = {}) {
 
 export const api = {
   // Calendar
-  getUpcoming: (params) => get('/calendar/upcoming', params),
-  getRecent:   (params) => get('/calendar/recent', params),
-  refreshCalendar: () => post('/calendar/refresh'),
+  getUpcoming:      (params) => get('/calendar/upcoming', params),
+  getRecent:        (params) => get('/calendar/recent', params),
+  getJustReleased:  (params) => get('/calendar/just-released', params),
+  refreshCalendar:  () => post('/calendar/refresh'),
 
   // AI Analysis
   analyzeEvent: (data) => post('/analysis/event', data),
