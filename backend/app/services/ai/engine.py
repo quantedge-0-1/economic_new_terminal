@@ -5,6 +5,7 @@ Every economic release triggers a Goldman Sachs-grade analysis in Spanish.
 
 import anthropic
 
+from app.core.claude_retry import claude_with_retry
 from app.core.config import settings
 from app.core.logger import get_logger
 
@@ -98,7 +99,8 @@ async def analyze_event(event_data: dict) -> dict:
 
     try:
         client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-        message = await client.messages.create(
+        message = await claude_with_retry(
+            client,
             model=settings.ai_model,
             max_tokens=settings.ai_max_tokens,
             system=SYSTEM_PROMPT,
@@ -122,9 +124,14 @@ async def analyze_event(event_data: dict) -> dict:
         }
 
     except Exception as exc:
-        logger.error("AI analysis failed: %s", exc)
+        logger.error("AI analysis failed after retries: %s", exc)
         return {
-            "analysis":    f"❌ Error al generar análisis: {exc}",
+            "analysis": (
+                "SEÑAL: NEUTRAL — Servicio de análisis temporalmente no disponible.\n"
+                f"SCORES: {scores_line}\n"
+                "PRECIO: Sin datos en este momento — reintentar en 1-2 minutos.\n"
+                "ACCIÓN: ESPERAR"
+            ),
             "model":       settings.ai_model,
             "tokens_used": 0,
         }
@@ -145,12 +152,13 @@ async def analyze_news_flash(article: dict) -> str:
 
     try:
         client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-        msg = await client.messages.create(
+        msg = await claude_with_retry(
+            client,
             model="claude-haiku-4-5-20251001",
             max_tokens=200,
             messages=[{"role": "user", "content": prompt}],
         )
         return msg.content[0].text
     except Exception as exc:
-        logger.error("News flash analysis failed: %s", exc)
-        return f"Error: {exc}"
+        logger.error("News flash analysis failed after retries: %s", exc)
+        return "Análisis no disponible — servicio temporalmente saturado."

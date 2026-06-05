@@ -10,6 +10,7 @@ from __future__ import annotations
 import anthropic
 
 from app.core import cache
+from app.core.claude_retry import claude_with_retry
 from app.core.config import settings
 from app.core.logger import get_logger
 
@@ -186,7 +187,8 @@ async def analyze_consolidated(events: list[dict], impacts: dict | None = None) 
 
     try:
         client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-        msg = await client.messages.create(
+        msg = await claude_with_retry(
+            client,
             model=settings.ai_model,
             max_tokens=settings.ai_max_tokens,
             system=_SYSTEM,
@@ -207,9 +209,14 @@ async def analyze_consolidated(events: list[dict], impacts: dict | None = None) 
         return result
 
     except Exception as exc:
-        logger.error("[Consolidated] Claude call failed: %s", exc)
+        logger.error("[Consolidated] Claude call failed after retries: %s", exc)
         return {
-            "analysis":    f"❌ Error al generar análisis consolidado: {exc}",
+            "analysis": (
+                "SEÑAL: NEUTRAL — Servicio de análisis temporalmente no disponible.\n"
+                f"SCORES: {scores_line}\n"
+                "PRECIO: Sin datos en este momento — reintentar en 1-2 minutos.\n"
+                "ACCIÓN: ESPERAR"
+            ),
             "model":       settings.ai_model,
             "tokens_used": 0,
             "net_signal":  None,

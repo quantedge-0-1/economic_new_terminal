@@ -25,6 +25,7 @@ import json
 
 import anthropic
 
+from app.core.claude_retry import claude_with_retry
 from app.core.config import settings
 from app.core.logger import get_logger
 from app.services.prices.history import get_price_change_pct, history_depth_seconds
@@ -75,7 +76,8 @@ async def compute_nss(event_data: dict) -> dict:
 
     try:
         client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-        resp = await client.messages.create(
+        resp = await claude_with_retry(
+            client,
             model="claude-haiku-4-5-20251001",
             max_tokens=300,
             system=_NSS_SYSTEM,
@@ -103,10 +105,10 @@ async def compute_nss(event_data: dict) -> dict:
 
     except json.JSONDecodeError as exc:
         logger.warning("NSS JSON parse failed: %s", exc)
-        return _neutral_nss("Error al parsear respuesta Claude")
+        return _neutral_nss("Respuesta inesperada del modelo")
     except Exception as exc:
-        logger.error("NSS computation failed: %s", exc)
-        return _neutral_nss(str(exc))
+        logger.error("NSS computation failed after retries: %s", exc)
+        return _neutral_nss("Servicio temporalmente no disponible")
 
 
 # ── MCS (Market Confirmation Score) ───────────────────────────────────────────
