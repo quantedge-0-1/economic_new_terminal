@@ -7,6 +7,7 @@ import AlertsPanel from './components/AlertsPanel.jsx'
 import DivergencePanel from './components/DivergencePanel.jsx'
 import SentimentPanel from './components/SentimentPanel.jsx'
 import MemoryPanel from './components/MemoryPanel.jsx'
+import PreReleasePanel from './components/PreReleasePanel.jsx'
 
 export default function App() {
   const [selectedEvent, setSelectedEvent] = useState(null)
@@ -36,6 +37,9 @@ export default function App() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', fontFamily: 'var(--font-mono)' }}>
       <Header backendOk={backendOk} alertCount={alertCount} />
+
+      {/* Pre-release scanner — auto-shows T-10 before any high-impact event */}
+      <PreReleasePanel />
 
       {/* Main grid */}
       <div style={{

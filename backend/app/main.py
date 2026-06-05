@@ -64,16 +64,17 @@ app.add_middleware(
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 from app.api.v1.routes import (  # noqa: E402
-    calendar, analysis, prices, surprise, news, alerts, sentiment,
+    calendar, analysis, prices, surprise, news, alerts, sentiment, pre_release,
 )
 
-app.include_router(calendar.router,  prefix="/api/v1/calendar",  tags=["Calendar"])
-app.include_router(analysis.router,  prefix="/api/v1/analysis",  tags=["AI Analysis"])
-app.include_router(prices.router,    prefix="/api/v1/prices",    tags=["Prices"])
-app.include_router(surprise.router,  prefix="/api/v1/surprise",  tags=["Surprise"])
-app.include_router(news.router,      prefix="/api/v1/news",      tags=["News"])
-app.include_router(alerts.router,    prefix="/api/v1/alerts",    tags=["Alerts"])
-app.include_router(sentiment.router, prefix="/api/v1/sentiment", tags=["Sentiment ISS"])
+app.include_router(calendar.router,    prefix="/api/v1/calendar",     tags=["Calendar"])
+app.include_router(analysis.router,    prefix="/api/v1/analysis",     tags=["AI Analysis"])
+app.include_router(prices.router,      prefix="/api/v1/prices",       tags=["Prices"])
+app.include_router(surprise.router,    prefix="/api/v1/surprise",     tags=["Surprise"])
+app.include_router(news.router,        prefix="/api/v1/news",         tags=["News"])
+app.include_router(alerts.router,      prefix="/api/v1/alerts",       tags=["Alerts"])
+app.include_router(sentiment.router,   prefix="/api/v1/sentiment",    tags=["Sentiment ISS"])
+app.include_router(pre_release.router, prefix="/api/v1/pre-release",  tags=["Pre-Release"])
 
 
 @app.get("/", tags=["Health"])

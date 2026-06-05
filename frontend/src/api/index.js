@@ -53,6 +53,9 @@ export const api = {
   getMemoryPatterns: ()       => get('/sentiment/event-memory/patterns'),
   triggerMemoryFill: ()       => post('/sentiment/event-memory/fill'),
 
+  // Pre-Release Scanner
+  getPreReleaseStatus: () => get('/pre-release/status'),
+
   // Health
   health: () => fetch('/health').then(r => r.json()),
 }
