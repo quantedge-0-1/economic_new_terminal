@@ -133,3 +133,62 @@ async def trigger_refresh(
     cache.clear_prefix("cal:")
     result = await _engine.refresh(db, lookahead_days=lookahead_days)
     return result
+
+
+@router.post("/mark-released")
+async def mark_event_released(
+    event_name: str = Query(..., description="Partial event name to match (case-insensitive)"),
+    event_date: str = Query(..., description="Release date YYYY-MM-DD"),
+    actual: float = Query(...),
+    forecast: float | None = Query(None),
+    previous: float | None = Query(None),
+    unit: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Admin override: mark an event as released with real values.
+    Use when all providers fail to capture the release automatically.
+    Clears news and calendar caches so the Agenda sees updated data immediately.
+    """
+    from datetime import UTC, datetime
+    from fastapi import HTTPException
+    from sqlalchemy import and_
+    from app.db.models import EconomicEvent
+
+    y, m, d = (int(p) for p in event_date.split("-"))
+    day_start = datetime(y, m, d, 0,  0,  0, tzinfo=UTC)
+    day_end   = datetime(y, m, d, 23, 59, 59, tzinfo=UTC)
+
+    rows = (await db.execute(
+        select(EconomicEvent)
+        .where(
+            and_(
+                EconomicEvent.event_name.ilike(f"%{event_name}%"),
+                EconomicEvent.event_at >= day_start,
+                EconomicEvent.event_at <= day_end,
+            )
+        )
+    )).scalars().all()
+
+    if not rows:
+        raise HTTPException(404, f"No event matching '{event_name}' on {event_date}")
+
+    for ev in rows:
+        ev.actual  = actual
+        ev.status  = "released"
+        if forecast is not None:
+            ev.forecast = forecast
+        if previous is not None:
+            ev.previous = previous
+        if unit is not None:
+            ev.unit = unit
+
+    await db.commit()
+    cache.clear_prefix("news:")
+    cache.clear_prefix("cal:")
+
+    return {
+        "marked_released": len(rows),
+        "events": [r.event_name for r in rows],
+        "actual": actual,
+    }

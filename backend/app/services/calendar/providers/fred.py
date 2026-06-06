@@ -57,6 +57,12 @@ _SERIES_DEF = [
     (25,  "HOUST",           "US Housing Starts",       "K",     "medium", "housing",    "level",  0),
 ]
 
+# Map display_name → (series_id, transform, yoy_periods) for the actuals scanner
+_NAME_TO_SERIES: dict[str, tuple[str, str, int]] = {
+    name: (sid, transform, yoy_p)
+    for _, sid, name, _, _, _, transform, yoy_p in _SERIES_DEF
+}
+
 # Release IDs that publish daily (FEDFUNDS H.15) — skip, too noisy
 _SKIP_RELEASE_IDS: set[int] = {18}
 
@@ -78,9 +84,15 @@ class FREDProvider:
         start = now - timedelta(days=lookback_days)
         end   = now + timedelta(days=lookahead_days)
 
+        sem = asyncio.Semaphore(3)  # FRED free tier: ~12 req/min — cap concurrency
+
+        async def _bounded(coro):
+            async with sem:
+                return await coro
+
         async with httpx.AsyncClient(timeout=25.0) as client:
             tasks = [
-                self._fetch_one(client, rel_id, sid, name, unit, imp, cat, transform, yoy_p, start, end)
+                _bounded(self._fetch_one(client, rel_id, sid, name, unit, imp, cat, transform, yoy_p, start, end))
                 for rel_id, sid, name, unit, imp, cat, transform, yoy_p in _SERIES_DEF
                 if rel_id not in _SKIP_RELEASE_IDS
             ]
@@ -210,6 +222,53 @@ class FREDProvider:
             })
 
         return events
+
+    async def fetch_actuals_for_event(
+        self, series_id: str, transform: str, yoy_periods: int
+    ) -> float | None:
+        """
+        Directly fetch and compute the most recent actual value for a series.
+        Used by the actuals scanner to fill past-pending events without the
+        release_dates intermediary (bypasses the timing / rate-limit failure modes).
+        """
+        if not self._key:
+            return None
+
+        needed = max(yoy_periods + 2, 3)
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                obs_r = await client.get(
+                    f"{_BASE}/series/observations",
+                    params={
+                        "series_id":  series_id,
+                        "api_key":    self._key,
+                        "file_type":  "json",
+                        "sort_order": "desc",
+                        "limit":      needed + 3,
+                    },
+                )
+                obs_r.raise_for_status()
+                raw_obs = obs_r.json().get("observations", [])
+        except Exception as exc:
+            logger.warning("[FRED] direct fetch %s: %s", series_id, exc)
+            return None
+
+        obs_map: dict[str, float] = {}
+        obs_dates: list[str] = []
+        for o in reversed(raw_obs):  # reverse desc→asc for transform helpers
+            v = _parse_val(o.get("value"))
+            if v is not None:
+                obs_map[o["date"]] = v
+                obs_dates.append(o["date"])
+
+        if not obs_dates:
+            return None
+
+        current_date = obs_dates[-1]
+        current_raw  = obs_map[current_date]
+
+        actual, _ = _apply_transform(transform, yoy_periods, obs_dates, obs_map, current_date, current_raw)
+        return actual
 
     async def fetch_latest_value(self, series_id: str) -> float | None:
         if not self._key:

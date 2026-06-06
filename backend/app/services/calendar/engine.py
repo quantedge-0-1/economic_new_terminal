@@ -13,12 +13,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logger import get_logger
 from app.db.models import EconomicEvent
-from app.services.calendar.providers.fred import FREDProvider
+from app.services.calendar.providers.fred import FREDProvider, _NAME_TO_SERIES
 from app.services.calendar.providers.investing_scraper import InvestingCalendarScraper
 
 logger = get_logger(__name__)
@@ -65,11 +65,19 @@ class CalendarEngine:
                 skipped += 1
 
         await db.commit()
+
+        # After the normal merge/upsert, scan for past high-impact events still pending
+        # and try to fill their actuals directly from FRED (bypasses scraper/timing failures)
+        filled = await self._scan_and_fill_actuals(db)
+
         logger.info(
-            "[calendar] refresh: %d inserted, %d updated, %d skipped from %d events",
-            inserted, updated, skipped, len(unique_events),
+            "[calendar] refresh: %d inserted, %d updated, %d skipped, %d filled from %d events",
+            inserted, updated, skipped, filled, len(unique_events),
         )
-        return {"inserted": inserted, "updated": updated, "skipped": skipped, "total": len(unique_events)}
+        return {
+            "inserted": inserted, "updated": updated,
+            "skipped": skipped, "total": len(unique_events), "filled": filled,
+        }
 
     async def _upsert_event(self, db: AsyncSession, ev: dict) -> str:
         existing = (await db.execute(
@@ -90,6 +98,55 @@ class CalendarEngine:
                 setattr(existing, field, new_val)
                 changed = True
         return "updated" if changed else "noop"
+
+    async def _scan_and_fill_actuals(self, db: AsyncSession) -> int:
+        """
+        For high-impact events that are past-due (pending + event_at < now + actual=None),
+        attempt a direct FRED observation fetch. This catches events the normal pipeline
+        missed due to rate limiting, scraper blocking, or timing issues.
+        """
+        now = datetime.now(UTC)
+
+        rows = (await db.execute(
+            select(EconomicEvent)
+            .where(
+                and_(
+                    EconomicEvent.event_at < now,
+                    EconomicEvent.actual.is_(None),
+                    EconomicEvent.status == "pending",
+                    or_(
+                        EconomicEvent.is_high_impact == True,
+                        EconomicEvent.importance     == "high",
+                    ),
+                )
+            )
+            .order_by(EconomicEvent.event_at.desc())
+            .limit(10)
+        )).scalars().all()
+
+        if not rows:
+            return 0
+
+        filled = 0
+        for ev in rows:
+            series_info = _NAME_TO_SERIES.get(ev.event_name)
+            if series_info is None:
+                continue
+            series_id, transform, yoy_periods = series_info
+
+            actual = await self._fred.fetch_actuals_for_event(series_id, transform, yoy_periods)
+            if actual is None:
+                continue
+
+            ev.actual = actual
+            ev.status = "released"
+            filled += 1
+            logger.info("[actuals_scanner] %s → actual=%s", ev.event_name, actual)
+
+        if filled:
+            await db.commit()
+
+        return filled
 
     # ── Query helpers ──────────────────────────────────────────────────────────
 
