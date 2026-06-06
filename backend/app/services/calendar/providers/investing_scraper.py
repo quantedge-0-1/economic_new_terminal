@@ -97,7 +97,7 @@ class InvestingCalendarScraper:
                     "dateFrom": (now - timedelta(days=7)).strftime("%Y-%m-%d"),
                     "dateTo":   (now + timedelta(days=lookahead_days)).strftime("%Y-%m-%d"),
                     "timeZone": "55",   # 55 = GMT/UTC in Investing.com's internal ID system
-                    "timeFilter": "timeRemain",
+                    "timeFilter": "timeOnly",
                     "currentTab": "custom",
                     "submitFilters": 1,
                     "limit_from": 0,
