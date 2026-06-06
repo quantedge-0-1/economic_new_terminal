@@ -30,6 +30,7 @@ export const api = {
   getAnalysisHistory: () => get('/analysis/history'),
   getConsolidatedAnalysis: (params) => get('/analysis/consolidated', params),
   postConsolidatedAnalysis: (data)  => post('/analysis/consolidated', data),
+  getDailyBriefing: (force = false) => get('/analysis/briefing', force ? { force: 'true' } : {}),
 
   // Prices
   getLivePrices: () => get('/prices/live'),

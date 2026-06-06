@@ -185,6 +185,96 @@ async def get_consolidated_analysis(
     return result
 
 
+@router.get("/briefing")
+async def get_daily_briefing(
+    force: bool = Query(False, description="Bypass cache and regenerate"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Daily macro briefing — 8-line narrative for all today's high-impact events.
+
+    Returns: CONTEXTO / NARRATIVA / CLAVE / HORARIO / CADENA / TRADING / SESGO / ACCIÓN
+    Cached for 10 minutes. Use ?force=true to regenerate immediately.
+    """
+    from datetime import UTC, timedelta
+    from sqlalchemy import and_, or_, select
+
+    from app.db.models import EconomicEvent
+    from app.services.ai.briefing import generate_daily_briefing
+    from app.services.calendar.engine import _event_to_dict
+    from app.services.prices.engine import get_all_prices
+
+    # Quick cache check (unless forced)
+    latest_key = "analysis:briefing:latest"
+    if not force:
+        cached = cache.get(latest_key)
+        if cached:
+            return cached
+
+    now         = datetime.now(UTC)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end   = today_start + timedelta(days=1)
+
+    # Upcoming high-impact events today (pending)
+    upcoming_rows = (await db.execute(
+        select(EconomicEvent)
+        .where(and_(
+            EconomicEvent.event_at >= now,
+            EconomicEvent.event_at <  today_end,
+            EconomicEvent.status   == "pending",
+            or_(
+                EconomicEvent.is_high_impact == True,
+                EconomicEvent.importance     == "high",
+            ),
+        ))
+        .order_by(EconomicEvent.event_at)
+        .limit(10)
+    )).scalars().all()
+
+    # Released in last 8 h (high-impact only)
+    recent_rows = (await db.execute(
+        select(EconomicEvent)
+        .where(and_(
+            EconomicEvent.event_at >= now - timedelta(hours=8),
+            EconomicEvent.event_at <= now,
+            EconomicEvent.actual.isnot(None),
+            or_(
+                EconomicEvent.is_high_impact == True,
+                EconomicEvent.importance     == "high",
+            ),
+        ))
+        .order_by(EconomicEvent.event_at.desc())
+        .limit(5)
+    )).scalars().all()
+
+    upcoming = [_event_to_dict(r) for r in upcoming_rows]
+
+    released: list[dict] = []
+    for r in recent_rows:
+        d = _event_to_dict(r)
+        fc = d.get("forecast")
+        ac = d.get("actual")
+        if ac is not None and fc is not None and fc != 0:
+            d["surprise_pct"] = round((ac - fc) / abs(fc) * 100, 1)
+        released.append(d)
+
+    # Current prices — get_all_prices returns {sym: {price, source, timestamp} | None}
+    try:
+        raw = await get_all_prices()
+        current_prices = {}
+        for sym in ("XAUUSD", "DXY", "US10Y"):
+            entry = raw.get(sym)
+            current_prices[sym] = entry.get("price") if isinstance(entry, dict) else None
+    except Exception:
+        current_prices = {}
+
+    result = await generate_daily_briefing(upcoming, released, current_prices)
+
+    # Store under "latest" key so repeated non-force calls are instant
+    cache.set(latest_key, result, 600)
+    return result
+
+
 class ConsolidatedRequest(BaseModel):
     events: List[EventAnalysisRequest]
 
