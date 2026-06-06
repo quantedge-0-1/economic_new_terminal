@@ -68,9 +68,11 @@ async def get_live_release(db: AsyncSession = Depends(get_db)):
             elif surprise_pct <= -3:  surprise_label = "miss"
 
         events.append({
+            "id":            ev.id,
             "event_name":    ev.event_name,
             "currency":      ev.currency,
             "importance":    ev.importance,
+            "is_high_impact": bool(ev.is_high_impact or ev.importance == "high"),
             "event_at":      ev.event_at.isoformat() if ev.event_at else None,
             "actual":        ev.actual,
             "forecast":      ev.forecast,
