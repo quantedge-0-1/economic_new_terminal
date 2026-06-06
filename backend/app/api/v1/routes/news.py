@@ -23,13 +23,47 @@ router = APIRouter()
 
 _engine = NewsEngine()
 
+# ── Rule-based market impact by event category ────────────────────────────────
+# Multipliers applied to the surprise_pct (capped ±100) to produce
+# directional scores for USD, Gold, Bonds, and Risk sentiment.
+_IMPACT_MULT: dict[str, dict[str, float]] = {
+    "employment": {"usd":  1.0, "gold": -0.8, "bond": -0.7, "risk":  0.6},
+    "inflation":  {"usd":  0.8, "gold":  0.3, "bond": -0.9, "risk": -0.5},
+    "gdp":        {"usd":  0.9, "gold": -0.6, "bond": -0.7, "risk":  0.7},
+    "rates":      {"usd":  0.7, "gold": -0.9, "bond": -0.8, "risk": -0.6},
+    "trade":      {"usd":  0.5, "gold": -0.3, "bond": -0.2, "risk":  0.4},
+    "housing":    {"usd":  0.4, "gold": -0.3, "bond": -0.3, "risk":  0.5},
+    "sentiment":  {"usd":  0.3, "gold":  0.2, "bond":  0.1, "risk":  0.5},
+}
+_DEFAULT_MULT = {"usd": 0.5, "gold": -0.3, "bond": -0.3, "risk": 0.3}
+
+
+def _compute_impact(surprise_pct: float | None, category: str | None) -> dict:
+    """
+    Compute rule-based impact scores (-100 to +100) from surprise_pct and category.
+    NFP employment +102% surprise → USD +100, Gold -80, Bond -70, Risk +60.
+    """
+    if surprise_pct is None:
+        return {
+            "usd_impact_score": None, "gold_impact_score": None,
+            "bond_impact_score": None, "risk_sentiment_score": None,
+        }
+    base = max(-100.0, min(100.0, float(surprise_pct)))
+    m = _IMPACT_MULT.get(category or "", _DEFAULT_MULT)
+    return {
+        "usd_impact_score":     round(base * m["usd"]),
+        "gold_impact_score":    round(base * m["gold"]),
+        "bond_impact_score":    round(base * m["bond"]),
+        "risk_sentiment_score": round(base * m["risk"]),
+    }
+
 
 @router.get("/live")
 async def get_live_release(db: AsyncSession = Depends(get_db)):
     """
-    Returns the most recent released high-impact event (last 4 hours).
-    Designed for 30-second polling by the PWA mobile companion.
-    Returns {events: [...]} — empty list when nothing released recently.
+    Returns the most recent released high-impact event (last 48 hours).
+    Designed for 60-second polling by the PWA mobile companion.
+    Returns {events: [...]} with impact scores — empty list when nothing released.
     """
     cache_key = "news:live"
     cached = cache.get(cache_key)
@@ -37,7 +71,7 @@ async def get_live_release(db: AsyncSession = Depends(get_db)):
         return cached
 
     now   = datetime.now(UTC)
-    since = now - timedelta(hours=4)
+    since = now - timedelta(hours=48)
 
     rows = (await db.execute(
         select(EconomicEvent)
@@ -62,15 +96,18 @@ async def get_live_release(db: AsyncSession = Depends(get_db)):
         surprise_label = "in_line"
         if ev.actual is not None and ev.forecast is not None and ev.forecast != 0:
             surprise_pct = round((ev.actual - ev.forecast) / abs(ev.forecast) * 100, 1)
-            if surprise_pct >= 10:   surprise_label = "large_beat"
-            elif surprise_pct >= 3:  surprise_label = "beat"
+            if surprise_pct >= 10:    surprise_label = "large_beat"
+            elif surprise_pct >= 3:   surprise_label = "beat"
             elif surprise_pct <= -10: surprise_label = "large_miss"
             elif surprise_pct <= -3:  surprise_label = "miss"
+
+        impact = _compute_impact(surprise_pct, ev.category)
 
         events.append({
             "id":            ev.id,
             "event_name":    ev.event_name,
             "currency":      ev.currency,
+            "category":      ev.category,
             "importance":    ev.importance,
             "is_high_impact": bool(ev.is_high_impact or ev.importance == "high"),
             "event_at":      ev.event_at.isoformat() if ev.event_at else None,
@@ -80,10 +117,11 @@ async def get_live_release(db: AsyncSession = Depends(get_db)):
             "unit":          ev.unit,
             "surprise_pct":  surprise_pct,
             "surprise_label": surprise_label,
+            **impact,
         })
 
     result = {"events": events, "count": len(events), "as_of": now.isoformat()}
-    cache.set(cache_key, result, 60)  # 60s — fresh enough for 30s polling
+    cache.set(cache_key, result, 60)
     return result
 
 
