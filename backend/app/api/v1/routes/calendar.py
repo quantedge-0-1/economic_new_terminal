@@ -152,7 +152,7 @@ async def mark_event_released(
     """
     from datetime import UTC, datetime
     from fastapi import HTTPException
-    from sqlalchemy import and_
+    from sqlalchemy import and_, select
     from app.db.models import EconomicEvent
 
     y, m, d = (int(p) for p in event_date.split("-"))
