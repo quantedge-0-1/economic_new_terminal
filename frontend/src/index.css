@@ -2,25 +2,25 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg-primary:    #080d14;
-  --bg-panel:      #0d1521;
-  --bg-card:       #111c2e;
-  --bg-hover:      #162035;
-  --border:        #1e2d44;
-  --border-bright: #2a3f5f;
+  --bg-primary:    #030508;
+  --bg-panel:      #070b12;
+  --bg-card:       #0a1018;
+  --bg-hover:      #0e1828;
+  --border:        #16222f;
+  --border-bright: #1e2f45;
 
-  --text-primary:  #d4e4f7;
-  --text-dim:      #6b8aad;
-  --text-muted:    #3d5470;
+  --text-primary:  #8aa8c4;
+  --text-dim:      #4a6882;
+  --text-muted:    #2a3f55;
 
-  --green:         #00d4aa;
-  --green-dim:     #00a882;
-  --red:           #ff4455;
-  --red-dim:       #cc3344;
-  --amber:         #ffaa00;
-  --amber-dim:     #cc8800;
-  --blue:          #4090ff;
-  --purple:        #9966ff;
+  --green:         #00a888;
+  --green-dim:     #007d66;
+  --red:           #cc3344;
+  --red-dim:       #992233;
+  --amber:         #cc8800;
+  --amber-dim:     #996600;
+  --blue:          #3070cc;
+  --purple:        #7755cc;
 
   --font-mono: 'Consolas', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
   --font-sans: 'Segoe UI', system-ui, sans-serif;
