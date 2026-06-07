@@ -178,6 +178,7 @@ async def mark_event_released(
             event_name=event_name,
             currency="USD",
             country="US",
+            category="employment",
             importance="high",
             is_high_impact=True,
             event_at=event_time,
