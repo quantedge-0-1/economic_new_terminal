@@ -127,9 +127,12 @@ class CalendarEngine:
         if not rows:
             return 0
 
+        # Build a normalized lookup so "Nonfarm Payrolls (MoM)" matches "US Nonfarm Payrolls"
+        norm_series = {_normalize_name(k): v for k, v in _NAME_TO_SERIES.items()}
+
         filled = 0
         for ev in rows:
-            series_info = _NAME_TO_SERIES.get(ev.event_name)
+            series_info = norm_series.get(_normalize_name(ev.event_name))
             if series_info is None:
                 continue
             series_id, transform, yoy_periods = series_info
