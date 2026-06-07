@@ -1,5 +1,5 @@
-# Economic News Terminal — Launcher
-# Arranca backend + frontend y abre el navegador automaticamente
+# Economic News Terminal — Launcher (modo silencioso)
+# Arranca backend + frontend en segundo plano y abre el navegador
 
 $projectRoot = "C:\Users\Lenovo Ideapad\OneDrive\Desktop\workspace\economic_news_terminal"
 $python      = "C:\Users\Lenovo Ideapad\AppData\Local\Programs\Python\Python311\python.exe"
@@ -16,16 +16,20 @@ if ($p3000) {
     Start-Sleep -Seconds 1
 }
 
-# Arrancar backend
-Start-Process powershell -ArgumentList "-NoExit", "-Command",
-    "cd '$projectRoot\backend'; & '$python' -m uvicorn app.main:app --host 0.0.0.0 --port 8001"
+# Arrancar backend en segundo plano (sin ventana)
+Start-Process -FilePath $python `
+    -ArgumentList "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001" `
+    -WorkingDirectory "$projectRoot\backend" `
+    -WindowStyle Hidden
 
-# Arrancar frontend
-Start-Process powershell -ArgumentList "-NoExit", "-Command",
-    "cd '$projectRoot\frontend'; npm run dev"
+# Arrancar frontend en segundo plano (sin ventana)
+Start-Process -FilePath "cmd.exe" `
+    -ArgumentList "/c", "npm run dev" `
+    -WorkingDirectory "$projectRoot\frontend" `
+    -WindowStyle Hidden
 
-# Esperar a que ambos levanten
-Start-Sleep -Seconds 6
+# Esperar a que levanten
+Start-Sleep -Seconds 7
 
 # Abrir navegador
 Start-Process "http://localhost:3000"
