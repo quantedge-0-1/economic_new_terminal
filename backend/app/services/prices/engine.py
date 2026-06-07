@@ -66,6 +66,9 @@ async def _fetch_yfinance(symbol: str, yf_symbol: str) -> dict | None:
             import yfinance as yf
             ticker = yf.Ticker(yf_symbol)
             hist = ticker.history(period="1d", interval="1m")
+            if hist.empty:
+                # Weekend / market closed — use last known close (up to 5 days back)
+                hist = ticker.history(period="5d", interval="1d")
             if not hist.empty:
                 return float(hist["Close"].iloc[-1])
             return None
