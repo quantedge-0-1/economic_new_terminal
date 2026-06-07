@@ -170,8 +170,26 @@ async def mark_event_released(
         )
     )).scalars().all()
 
+    created = False
     if not rows:
-        raise HTTPException(404, f"No event matching '{event_name}' on {event_date}")
+        # Event not in DB yet — insert it so the Agenda can display it
+        event_time = datetime(y, m, d, 13, 30, 0, tzinfo=UTC)  # default 13:30 UTC (BLS standard)
+        new_ev = EconomicEvent(
+            event_name=event_name,
+            currency="USD",
+            country="US",
+            importance="high",
+            is_high_impact=True,
+            event_at=event_time,
+            actual=actual,
+            forecast=forecast,
+            previous=previous,
+            unit=unit,
+            status="released",
+        )
+        db.add(new_ev)
+        rows = [new_ev]
+        created = True
 
     for ev in rows:
         ev.actual  = actual
@@ -189,6 +207,7 @@ async def mark_event_released(
 
     return {
         "marked_released": len(rows),
+        "created": created,
         "events": [r.event_name for r in rows],
         "actual": actual,
     }
