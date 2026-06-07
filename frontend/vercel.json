@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://economic-news-terminal-production.up.railway.app/api/$1"
+    },
+    {
+      "source": "/health",
+      "destination": "https://economic-news-terminal-production.up.railway.app/health"
+    }
+  ]
+}
