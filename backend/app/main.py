@@ -64,13 +64,26 @@ async def _memory_filler_loop() -> None:
 async def _price_poller_loop() -> None:
     """
     Keep _price_history buffer alive regardless of whether the frontend is open.
-    Runs every 45s — matches prices_cache_ttl so each iteration fetches fresh data.
-    Without this, PreRelease scanner and ISS/MCS go stale when the browser is closed.
+    Burst phase: 4 rapid polls every 5s on startup → fills buffer to 4+ snapshots
+    in ~15s so PreRelease scanner has data quality HIGH within the first minute.
+    Steady phase: every 45s (matches prices_cache_ttl).
     """
     from app.services.prices.engine import get_all_prices
     from app.services.prices.history import record_prices
 
-    await asyncio.sleep(10)
+    await asyncio.sleep(2)
+    # Burst: 4 polls at 5s intervals to quickly fill the rolling buffer
+    for _ in range(4):
+        try:
+            prices = await get_all_prices()
+            record_prices(prices)
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:
+            logger.warning("[PricePoller] burst error: %s", exc)
+        await asyncio.sleep(5)
+
+    # Steady: normal cadence
     while True:
         try:
             prices = await get_all_prices()

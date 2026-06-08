@@ -28,6 +28,15 @@ _SYSTEM = (
     "ACCIÓN: [LONG/SHORT/ESPERAR] en [nivel] | Stop [nivel] | TP [nivel] | R:R [ratio]"
 )
 
+_POST_SYSTEM = (
+    "Eres un trader macro en un banco Tier-1. Respondes ÚNICAMENTE en Español. "
+    "Exactamente 3 líneas. Sin markdown. Sin líneas en blanco. Texto plano. "
+    "FORMATO (3 líneas exactas): "
+    "RESULTADO: [POSITIVO/NEGATIVO/NEUTRO] — [evento]: Real [actual] vs Pronóstico [forecast] ([sorpresa en %]). "
+    "REACCIÓN: [alcista/bajista/neutral] para ORO. [Breve explicación macro 1 frase]. "
+    "ACCIÓN: [LONG/SHORT/ESPERAR] | Esperar [N] velas de confirmación post-release."
+)
+
 
 async def get_ai_analysis(
     event_name: str,
@@ -39,7 +48,9 @@ async def get_ai_analysis(
     Returns a 4-line pre-release institutional analysis.
     Cached per (event_name, event_at) for 5 minutes.
     """
-    cache_key = f"pre_release:ai:{event_name}:{event_at_str}"
+    # Bucket by 2-min windows so analysis refreshes ~5 times during the 10-min window
+    minutes_bucket = (minutes_to_release // 2) * 2
+    cache_key = f"pre_release:ai:{event_name}:{event_at_str}:{minutes_bucket}"
     cached = cache.get(cache_key)
     if cached:
         return cached
@@ -83,4 +94,62 @@ async def get_ai_analysis(
             f"SCORES: Bias {signals.directional_bias:+.2f} | Discount {signals.discount_score:+.0f}/100 | {signals.state_label}\n"
             f"PRECIO: BSL {signals.bsl} | EQ {signals.equilibrium} | SSL {signals.ssl}\n"
             f"ACCIÓN: ESPERAR — usar niveles de precio como referencia."
+        )
+
+
+async def get_post_release_ai_analysis(
+    event_name: str,
+    event_at_str: str,
+    actual: str | None,
+    forecast: str | None,
+    currency: str,
+    minutes_since: int,
+) -> str:
+    """
+    Returns a 3-line post-release reaction analysis. Cached per event (no re-generation).
+    """
+    cache_key = f"post_release:ai:{event_name}:{event_at_str}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    if not settings.anthropic_api_key:
+        return (
+            f"RESULTADO: PENDIENTE — {event_name}: Real {actual or '?'} vs Pronóstico {forecast or '?'}.\n"
+            f"REACCIÓN: Evaluar impacto en ORO vs USD manualmente.\n"
+            f"ACCIÓN: ESPERAR — confirmar dirección con cierre de 2 velas post-release."
+        )
+
+    surprise_str = "sin pronóstico previo"
+    if actual is not None and forecast is not None:
+        try:
+            surp = ((float(actual) - float(forecast)) / abs(float(forecast))) * 100
+            surprise_str = f"{surp:+.1f}% vs pronóstico"
+        except (ValueError, ZeroDivisionError):
+            surprise_str = f"Real {actual} vs Pronóstico {forecast}"
+
+    user_msg = (
+        f"Evento: {event_name} ({currency}) | T+{minutes_since}min post-release\n"
+        f"Dato real: {actual or 'N/D'} | Pronóstico: {forecast or 'N/D'} | Sorpresa: {surprise_str}"
+    )
+
+    try:
+        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        resp = await claude_with_retry(
+            client,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=180,
+            system=_POST_SYSTEM,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        text = resp.content[0].text.strip()
+        cache.set(cache_key, text, 300)
+        logger.info("[PostRelease AI] analysis generated for '%s'", event_name)
+        return text
+    except Exception as exc:
+        logger.error("[PostRelease AI] failed: %s", exc)
+        return (
+            f"RESULTADO: {event_name}: Real {actual or '?'} vs Pronóstico {forecast or '?'}.\n"
+            f"REACCIÓN: Evaluar impacto en ORO manualmente.\n"
+            f"ACCIÓN: ESPERAR — confirmar dirección con cierre de 2 velas."
         )

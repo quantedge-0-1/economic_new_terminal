@@ -20,7 +20,7 @@ from app.core import cache
 from app.core.logger import get_logger
 from app.db.models import EconomicEvent
 from app.db.session import get_db
-from app.services.pre_release.analysis import get_ai_analysis
+from app.services.pre_release.analysis import get_ai_analysis, get_post_release_ai_analysis
 from app.services.pre_release.engine import PreReleaseResult, analyze_pre_release
 
 router = APIRouter()
@@ -91,7 +91,18 @@ async def get_pre_release_status(db: AsyncSession = Depends(get_db)):
             return result
 
         event_at_aware = _ensure_utc(recent.event_at)
+        event_at_str   = recent.event_at.strftime("%Y-%m-%dT%H:%M:%SZ")
         minutes_since  = max(0, int((now - event_at_aware).total_seconds() / 60))
+
+        ai_text = await get_post_release_ai_analysis(
+            event_name=recent.event_name,
+            event_at_str=event_at_str,
+            actual=recent.actual,
+            forecast=recent.forecast,
+            currency=recent.currency,
+            minutes_since=minutes_since,
+        )
+
         result = {
             "active":                True,
             "phase":                 "POST_RELEASE",
@@ -102,6 +113,7 @@ async def get_pre_release_status(db: AsyncSession = Depends(get_db)):
             "actual":                recent.actual,
             "forecast":              recent.forecast,
             "unit":                  recent.unit,
+            "ai_analysis":           ai_text,
         }
         cache.set(cache_key, result, 30)
         return result

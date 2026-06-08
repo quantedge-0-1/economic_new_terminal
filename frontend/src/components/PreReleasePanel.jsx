@@ -209,22 +209,33 @@ function SignalGrid({ data }) {
   )
 }
 
+const _KEYWORD_COLORS = {
+  'SEÑAL':     '#f0c040',
+  'SCORES':    '#4a6882',
+  'PRECIO':    '#00a888',
+  'ACCIÓN':    '#3070cc',
+  'RESULTADO': '#f0c040',
+  'REACCIÓN':  '#00a888',
+}
+
 function AIAnalysis({ text }) {
   if (!text) return <div style={{ color: 'var(--text-muted)', fontSize: 10 }}>Cargando análisis...</div>
   const lines = text.split('\n').filter(l => l.trim())
   return (
     <div>
       {lines.map((line, i) => {
-        const isNumbered = /^[1-5]\./.test(line.trim())
+        const match = line.match(/^([A-ZÁÉÍÓÚ]+):(.*)/)
+        const keyword = match?.[1]
+        const rest    = match?.[2] ?? line
+        const kwColor = _KEYWORD_COLORS[keyword] || 'var(--text-dim)'
         return (
-          <div key={i} style={{
-            fontSize: 10,
-            lineHeight: 1.7,
-            color: isNumbered ? 'var(--text-primary)' : 'var(--text-dim)',
-            fontWeight: isNumbered ? 600 : 400,
-            marginBottom: isNumbered ? 2 : 0,
-          }}>
-            {line}
+          <div key={i} style={{ fontSize: 10, lineHeight: 1.8, marginBottom: 1 }}>
+            {keyword && (
+              <span style={{ color: kwColor, fontWeight: 700, letterSpacing: 0.5 }}>
+                {keyword}:{' '}
+              </span>
+            )}
+            <span style={{ color: 'var(--text-primary)' }}>{rest.trim()}</span>
           </div>
         )
       })}
@@ -249,8 +260,41 @@ export default function PreReleasePanel() {
   useEffect(() => { fetchStatus() }, [])
   useInterval(fetchStatus, 30_000)
 
-  // Only render when active pre-release window is open
-  if (!data || !data.active || data.phase !== 'PRE_RELEASE') return null
+  if (!data || !data.active) return null
+
+  // ── POST_RELEASE: compact result card ────────────────────────────────────────
+  if (data.phase === 'POST_RELEASE') {
+    const lines = (data.ai_analysis || '').split('\n').filter(l => l.trim())
+    return (
+      <div style={{
+        margin: '0 6px 6px',
+        background: 'linear-gradient(135deg, #05080f 0%, #0a1525 100%)',
+        border: '1px solid #3070cc44',
+        borderLeft: '3px solid #3070cc',
+        borderRadius: 4,
+        padding: '8px 14px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 2, color: '#3070cc' }}>
+            ✓ POST-RELEASE
+          </span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+            {data.event_name}
+          </span>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+            {data.currency} · Real: <strong style={{ color: 'var(--text-primary)' }}>{data.actual ?? '–'}{data.unit || ''}</strong>
+            {' '}vs Pron: {data.forecast ?? '–'}{data.unit || ''}
+          </span>
+          <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--text-muted)' }}>
+            T+{data.minutes_since_release}min
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexDirection: 'column' }}>
+          {lines.map((line, i) => <AIAnalysis key={i} text={line} />)}
+        </div>
+      </div>
+    )
+  }
 
   const stateColor  = data.state_color || STATE_COLORS[data.institutional_state] || '#888'
   const qualColor   = QUALITY_COLORS[data.data_quality] || 'var(--text-muted)'
