@@ -55,6 +55,12 @@ _SERIES_DEF = [
     (16,  "INDPRO",          "US Industrial Production","index", "medium", "gdp",        "level",  0),
     # Housing Starts — level in thousands
     (25,  "HOUST",           "US Housing Starts",       "K",     "medium", "housing",    "level",  0),
+    # Trade Balance — level in billions USD (BEA monthly, release_id=46)
+    (46,  "BOPGSTB",         "US Trade Balance",        "B",     "high",   "trade",      "level",  0),
+    # Initial Jobless Claims — weekly, level in thousands
+    (167, "ICSA",            "US Initial Jobless Claims","K",    "high",   "employment", "level",  0),
+    # Continuing Claims — weekly, level in thousands (same DOL release as ICSA)
+    (167, "CCSA",            "US Continuing Claims",    "K",     "medium", "employment", "level",  0),
 ]
 
 # Map display_name → (series_id, transform, yoy_periods) for the actuals scanner

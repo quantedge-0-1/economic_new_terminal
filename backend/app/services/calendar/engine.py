@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logger import get_logger
 from app.db.models import EconomicEvent
 from app.services.calendar.providers.fred import FREDProvider, _NAME_TO_SERIES
-from app.services.calendar.providers.investing_scraper import InvestingCalendarScraper
+from app.services.calendar.providers.forexfactory_scraper import ForexFactoryCalendarScraper
 
 logger = get_logger(__name__)
 
@@ -28,7 +28,7 @@ class CalendarEngine:
 
     def __init__(self):
         self._fred     = FREDProvider()
-        self._scraper  = InvestingCalendarScraper()
+        self._scraper  = ForexFactoryCalendarScraper()
 
     # ── Refresh pipeline ───────────────────────────────────────────────────────
 
