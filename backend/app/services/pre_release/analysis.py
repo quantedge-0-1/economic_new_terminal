@@ -114,11 +114,14 @@ async def get_post_release_ai_analysis(
         return cached
 
     if not settings.anthropic_api_key:
-        return (
+        text = (
             f"RESULTADO: PENDIENTE — {event_name}: Real {actual or '?'} vs Pronóstico {forecast or '?'}.\n"
             f"REACCIÓN: Evaluar impacto en ORO vs USD manualmente.\n"
             f"ACCIÓN: ESPERAR — confirmar dirección con cierre de 2 velas post-release."
         )
+        if actual is not None:
+            cache.set(cache_key, text, 300)
+        return text
 
     surprise_str = "sin pronóstico previo"
     if actual is not None and forecast is not None:
@@ -143,7 +146,9 @@ async def get_post_release_ai_analysis(
             messages=[{"role": "user", "content": user_msg}],
         )
         text = resp.content[0].text.strip()
-        cache.set(cache_key, text, 300)
+        # Only cache when we have real data — if actual is None, retry on next poll
+        if actual is not None:
+            cache.set(cache_key, text, 300)
         logger.info("[PostRelease AI] analysis generated for '%s'", event_name)
         return text
     except Exception as exc:

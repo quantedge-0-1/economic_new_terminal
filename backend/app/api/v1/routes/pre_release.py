@@ -27,7 +27,7 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 _WINDOW_MINUTES   = 10   # pre-release window opens T-10
-_POST_MINUTES     = 5    # post-release window closes T+5
+_POST_MINUTES     = 15   # post-release window — 15 min gives time for actuals to arrive
 
 
 @router.get("/status")

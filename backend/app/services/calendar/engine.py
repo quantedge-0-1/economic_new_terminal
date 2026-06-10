@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import cache
 from app.core.logger import get_logger
 from app.db.models import EconomicEvent
 from app.services.calendar.providers.fred import FREDProvider, _NAME_TO_SERIES
@@ -106,13 +107,37 @@ class CalendarEngine:
             nearby.event_at = event_at
             existing = nearby
 
+        else:
+            # Exact match found — remove any stale near-duplicate (DST artifact)
+            stale = (await db.execute(
+                select(EconomicEvent)
+                .where(EconomicEvent.event_name == ev["event_name"])
+                .where(EconomicEvent.event_at   >= ev["event_at"] - timedelta(hours=2))
+                .where(EconomicEvent.event_at   <= ev["event_at"] + timedelta(hours=2))
+                .where(EconomicEvent.event_at   != ev["event_at"])
+                .where(EconomicEvent.status     != "released")
+            )).scalars().first()
+            if stale:
+                await db.delete(stale)
+                logger.info("[calendar] removed stale duplicate: %s @ %s", ev["event_name"], stale.event_at)
+
         # Update mutable fields if changed
         changed = False
+        actual_filled = False
         for field in ("actual", "forecast", "previous", "revised", "status"):
             new_val = ev.get(field)
             if new_val is not None and getattr(existing, field) != new_val:
+                if field == "actual" and getattr(existing, field) is None:
+                    actual_filled = True
                 setattr(existing, field, new_val)
                 changed = True
+
+        if actual_filled:
+            # Actual just arrived — bust post-release AI cache so analysis regenerates with real data
+            cache.clear_prefix("post_release:ai:")
+            cache.clear_prefix("pre_release:")
+            logger.info("[calendar] actual filled for '%s' — AI cache cleared", existing.event_name)
+
         return "updated" if changed else "noop"
 
     async def _scan_and_fill_actuals(self, db: AsyncSession) -> int:
