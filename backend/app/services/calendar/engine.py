@@ -87,8 +87,24 @@ class CalendarEngine:
         )).scalar_one_or_none()
 
         if existing is None:
-            db.add(EconomicEvent(**ev))
-            return "inserted"
+            # No exact match — check for same event within ±2 h (handles DST corrections).
+            # A 1-hour DST shift produces a stale timestamp: update in-place instead of duplicating.
+            event_at = ev["event_at"]
+            nearby = (await db.execute(
+                select(EconomicEvent)
+                .where(EconomicEvent.event_name == ev["event_name"])
+                .where(EconomicEvent.event_at   >= event_at - timedelta(hours=2))
+                .where(EconomicEvent.event_at   <= event_at + timedelta(hours=2))
+                .where(EconomicEvent.status     != "released")
+            )).scalars().first()
+
+            if nearby is None:
+                db.add(EconomicEvent(**ev))
+                return "inserted"
+
+            # Correct the stale timestamp and fall through to field update below
+            nearby.event_at = event_at
+            existing = nearby
 
         # Update mutable fields if changed
         changed = False

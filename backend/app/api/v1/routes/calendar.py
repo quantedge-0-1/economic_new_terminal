@@ -154,6 +154,7 @@ async def mark_event_released(
     from fastapi import HTTPException
     from sqlalchemy import and_, select
     from app.db.models import EconomicEvent
+    from app.services.calendar.providers.fred import _to_utc_datetime
 
     y, m, d = (int(p) for p in event_date.split("-"))
     day_start = datetime(y, m, d, 0,  0,  0, tzinfo=UTC)
@@ -173,7 +174,7 @@ async def mark_event_released(
     created = False
     if not rows:
         # Event not in DB yet — insert it so the Agenda can display it
-        event_time = datetime(y, m, d, 13, 30, 0, tzinfo=UTC)  # default 13:30 UTC (BLS standard)
+        event_time = _to_utc_datetime(event_date)  # DST-aware: 12:30 UTC (EDT) or 13:30 UTC (EST)
         new_ev = EconomicEvent(
             event_name=event_name,
             currency="USD",
