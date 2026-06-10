@@ -15,7 +15,7 @@ Transforms applied per series:
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 import httpx
 
@@ -25,8 +25,11 @@ from app.core.logger import get_logger
 logger = get_logger(__name__)
 
 _BASE = "https://api.stlouisfed.org/fred"
-_RELEASE_HOUR_UTC = 13   # 08:30 ET = 13:30 UTC
-_RELEASE_MIN_UTC  = 30
+# BLS/BEA/Census release time: 08:30 ET (Eastern Time).
+# ET = EDT (UTC-4) March 2nd Sunday → November 1st Sunday; EST (UTC-5) otherwise.
+# _RELEASE_HOUR_UTC is no longer used — _to_utc_datetime computes the correct UTC offset per date.
+_RELEASE_ET_HOUR = 8
+_RELEASE_ET_MIN  = 30
 
 
 # ── Series definitions ─────────────────────────────────────────────────────────
@@ -306,8 +309,22 @@ def _parse_val(raw) -> float | None:
 
 
 def _to_utc_datetime(date_str: str) -> datetime:
+    """Convert a FRED release date to UTC at the standard US economic data release time (08:30 ET).
+
+    Applies DST: EDT (UTC-4) from March 2nd Sunday through November 1st Sunday,
+    EST (UTC-5) the rest of the year. This ensures summer releases (e.g. CPI in June)
+    are stored at 12:30 UTC (08:30 EDT) rather than the incorrect 13:30 UTC (08:30 EST).
+    """
     y, m, d = (int(p) for p in date_str.split("-"))
-    return datetime(y, m, d, _RELEASE_HOUR_UTC, _RELEASE_MIN_UTC, tzinfo=UTC)
+    # DST boundaries for year y
+    march1    = datetime(y, 3, 1)
+    dst_start = march1 + timedelta(days=(6 - march1.weekday()) % 7 + 7)  # 2nd Sunday March
+    nov1      = datetime(y, 11, 1)
+    dst_end   = nov1   + timedelta(days=(6 - nov1.weekday()) % 7)         # 1st Sunday November
+    date_only = datetime(y, m, d).date()
+    et_offset = timedelta(hours=-4) if dst_start.date() <= date_only < dst_end.date() else timedelta(hours=-5)
+    et_tz     = timezone(et_offset)
+    return datetime(y, m, d, _RELEASE_ET_HOUR, _RELEASE_ET_MIN, tzinfo=et_tz).astimezone(UTC)
 
 
 def _latest_obs_before(obs_dates: list[str], cutoff: str) -> str | None:
