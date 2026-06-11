@@ -176,11 +176,14 @@ class CalendarEngine:
             series_info = norm_series.get(_normalize_name(ev.event_name))
             if series_info is None:
                 continue
-            series_id, transform, yoy_periods = series_info
+            series_id, transform, yoy_periods, scale = series_info
 
             actual = await self._fred.fetch_actuals_for_event(series_id, transform, yoy_periods)
             if actual is None:
                 continue
+
+            if scale != 1.0:
+                actual = round(actual * scale, 3)
 
             ev.actual = actual
             ev.status = "released"

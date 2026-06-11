@@ -66,9 +66,24 @@ _SERIES_DEF = [
     (167, "CCSA",            "US Continuing Claims",    "K",     "medium", "employment", "level",  0),
 ]
 
-# Map display_name → (series_id, transform, yoy_periods) for the actuals scanner
-_NAME_TO_SERIES: dict[str, tuple[str, str, int]] = {
-    name: (sid, transform, yoy_p)
+# Weekly series: release date = observation reference date + N days
+# ICSA/CCSA reference week ends Saturday; BLS releases on following Thursday (+5 days)
+# These series use observation dates instead of the broken FRED release/dates API
+_OBS_DATE_RELEASE_OFFSET: dict[str, int] = {
+    "ICSA": 5,
+    "CCSA": 5,
+}
+
+# Unit scale factors: FRED stores raw values but terminal uses K notation
+# ICSA/CCSA: FRED returns raw count (229000) → terminal stores 229.0 with unit "K"
+_SERIES_SCALE: dict[str, float] = {
+    "ICSA": 0.001,
+    "CCSA": 0.001,
+}
+
+# Map display_name → (series_id, transform, yoy_periods, scale) for the actuals scanner
+_NAME_TO_SERIES: dict[str, tuple[str, str, int, float]] = {
+    name: (sid, transform, yoy_p, _SERIES_SCALE.get(sid, 1.0))
     for _, sid, name, _, _, _, transform, yoy_p in _SERIES_DEF
 }
 
@@ -136,31 +151,7 @@ class FREDProvider:
         start_s = start.strftime("%Y-%m-%d")
         end_s   = end.strftime("%Y-%m-%d")
 
-        # 1. Release dates
-        try:
-            r = await client.get(
-                f"{_BASE}/release/dates",
-                params={
-                    "release_id":  release_id,
-                    "api_key":     self._key,
-                    "file_type":   "json",
-                    "realtime_start": start_s,
-                    "realtime_end":   end_s,
-                    "sort_order":  "asc",
-                    "limit":       60,
-                    "include_release_dates_with_no_data": "true",
-                },
-            )
-            r.raise_for_status()
-            release_dates = [rd["date"] for rd in r.json().get("release_dates", []) if rd.get("date")]
-        except Exception as exc:
-            logger.warning("[FRED] release %d dates: %s", release_id, exc)
-            return []
-
-        if not release_dates:
-            return []
-
-        # 2. Observations — fetch extra periods for YoY/ChG calculation
+        # 1. Observations — always fetch first (weekly series need them before release dates)
         extra_days = max(yoy_periods * 35, 60)   # ~35 days per period
         obs_start  = (start - timedelta(days=extra_days)).strftime("%Y-%m-%d")
         try:
@@ -180,7 +171,7 @@ class FREDProvider:
             raw_obs = obs_r.json().get("observations", [])
         except Exception as exc:
             logger.warning("[FRED] %s observations: %s", series_id, exc)
-            raw_obs = []
+            return []
 
         # Parse observations into {date: float}
         obs_map: dict[str, float] = {}
@@ -191,7 +182,58 @@ class FREDProvider:
                 obs_map[o["date"]] = v
                 obs_dates.append(o["date"])
 
+        # 2. Release dates — derived from obs dates (weekly) or FRED release calendar (monthly)
+        if series_id in _OBS_DATE_RELEASE_OFFSET:
+            # Weekly series (ICSA, CCSA): FRED release/dates API is unreliable.
+            # Reference week ends Saturday; BLS releases on following Thursday (+5 days).
+            # Derive past release dates from observation dates + project future weeks.
+            offset = _OBS_DATE_RELEASE_OFFSET[series_id]
+            release_dates: list[str] = []
+            for d in obs_dates:
+                rel = (datetime.strptime(d, "%Y-%m-%d") + timedelta(days=offset)).strftime("%Y-%m-%d")
+                if start_s <= rel <= end_s:
+                    release_dates.append(rel)
+
+            # Project upcoming weekly releases beyond the last known observation
+            if obs_dates:
+                last_obs_dt = datetime.strptime(obs_dates[-1], "%Y-%m-%d")
+                next_rel = last_obs_dt + timedelta(days=offset)
+                if next_rel.strftime("%Y-%m-%d") in release_dates:
+                    next_rel += timedelta(days=7)   # already included — jump ahead
+                while next_rel.strftime("%Y-%m-%d") <= end_s:
+                    rel_str = next_rel.strftime("%Y-%m-%d")
+                    if rel_str >= start_s and rel_str not in release_dates:
+                        release_dates.append(rel_str)
+                    next_rel += timedelta(days=7)
+
+            release_dates.sort()
+        else:
+            # Monthly/quarterly: fetch from FRED release calendar
+            try:
+                r = await client.get(
+                    f"{_BASE}/release/dates",
+                    params={
+                        "release_id":  release_id,
+                        "api_key":     self._key,
+                        "file_type":   "json",
+                        "realtime_start": start_s,
+                        "realtime_end":   end_s,
+                        "sort_order":  "asc",
+                        "limit":       60,
+                        "include_release_dates_with_no_data": "true",
+                    },
+                )
+                r.raise_for_status()
+                release_dates = [rd["date"] for rd in r.json().get("release_dates", []) if rd.get("date")]
+            except Exception as exc:
+                logger.warning("[FRED] release %d dates: %s", release_id, exc)
+                return []
+
+            if not release_dates:
+                return []
+
         # 3. Build events
+        scale = _SERIES_SCALE.get(series_id, 1.0)
         events: list[dict] = []
         for rel_date in release_dates:
             event_at = _to_utc_datetime(rel_date)
@@ -204,6 +246,11 @@ class FREDProvider:
             actual, previous = _apply_transform(
                 transform, yoy_periods, obs_dates, obs_map, matching_date, actual_raw
             )
+
+            # Apply unit scale (e.g. ICSA: raw 229000 → 229.0 K)
+            if scale != 1.0:
+                if actual   is not None: actual   = round(actual   * scale, 3)
+                if previous is not None: previous = round(previous * scale, 3)
 
             is_future = event_at > datetime.now(UTC)
             # For future releases the matched observation is the previous period's
