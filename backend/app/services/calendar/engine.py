@@ -22,6 +22,7 @@ from app.db.models import EconomicEvent
 from app.services.calendar.providers.fred import FREDProvider, _NAME_TO_SERIES
 from app.services.calendar.providers.forexfactory_scraper import ForexFactoryCalendarScraper
 from app.services.calendar.providers.finnhub_provider import FinnHubCalendarProvider
+from app.services.calendar.providers.fed_calendar import FedCalendarProvider
 
 logger = get_logger(__name__)
 
@@ -32,6 +33,7 @@ class CalendarEngine:
         self._fred     = FREDProvider()
         self._scraper  = ForexFactoryCalendarScraper()
         self._finnhub  = FinnHubCalendarProvider()
+        self._fed      = FedCalendarProvider()
 
     # ── Refresh pipeline ───────────────────────────────────────────────────────
 
@@ -43,9 +45,10 @@ class CalendarEngine:
         fred_events     = await self._fred.fetch_releases(lookback_days=60, lookahead_days=lookahead_days)
         scraper_events  = await self._scraper.fetch_calendar(lookahead_days=lookahead_days)
         finnhub_events  = await self._finnhub.fetch_calendar(lookahead_days=lookahead_days)
+        fed_events      = await self._fed.fetch_calendar(lookahead_days=lookahead_days)
 
         # Combine all non-FRED sources; _merge_providers deduplicates them against FRED
-        merged = _merge_providers(fred_events, scraper_events + finnhub_events)
+        merged = _merge_providers(fred_events, scraper_events + finnhub_events + fed_events)
 
         # Deduplicate by (event_name, event_at) — last one wins within this batch
         deduped: dict[tuple, dict] = {}
