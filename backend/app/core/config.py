@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     twelve_data_api_key: str = ""
     anthropic_api_key: str = ""
     polygon_api_key: str = ""
+    finnhub_api_key: str = ""
 
     # Cache TTLs (seconds) — in-memory
     calendar_cache_ttl: int = 300     # 5 min
