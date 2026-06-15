@@ -34,31 +34,44 @@ function inferSurpriseLabel(event) {
   return 'in_line'
 }
 
-function fmtLocal(isoStr) {
-  const d = new Date(isoStr)
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  const today    = new Date()
-  const isToday  = d.toDateString() === today.toDateString()
-  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1)
-  const isTomorrow = d.toDateString() === tomorrow.toDateString()
-  const dayLabel = isToday ? '' : isTomorrow ? ' +1d' : ` ${d.getDate()}/${d.getMonth()+1}`
-  return `${hh}:${mm}${dayLabel}`
+const _COL_DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+
+// Colombia time = UTC-5, no DST — always explicit regardless of browser timezone
+function fmtCOL(isoStr) {
+  const COL_OFFSET_MS = 5 * 3600000
+  const colMs  = new Date(isoStr).getTime() - COL_OFFSET_MS
+  const d      = new Date(colMs)
+  const nowCol = new Date(Date.now() - COL_OFFSET_MS)
+
+  const hh = String(d.getUTCHours()).padStart(2, '0')
+  const mm = String(d.getUTCMinutes()).padStart(2, '0')
+
+  const sameDay = (a, b) =>
+    a.getUTCFullYear() === b.getUTCFullYear() &&
+    a.getUTCMonth()    === b.getUTCMonth()    &&
+    a.getUTCDate()     === b.getUTCDate()
+
+  const tmrCol = new Date(nowCol.getTime() + 86400000)
+
+  const dayLabel = sameDay(d, nowCol) ? 'Hoy'
+                 : sameDay(d, tmrCol) ? 'Mañ'
+                 : `${_COL_DAYS[d.getUTCDay()]} ${d.getUTCDate()}/${d.getUTCMonth() + 1}`
+
+  return { time: `${hh}:${mm}`, day: dayLabel }
 }
 
 function EventRow({ event, selected, onClick }) {
   const isReleased = event.status === 'released'
-  const eventTime = new Date(event.event_at)
-  const timeStr = fmtLocal(event.event_at)
-  const isPast = eventTime < new Date()
+  const isPast = new Date(event.event_at) < new Date()
   const surpriseLabel = event.surprise_label || inferSurpriseLabel(event)
+  const { time: colTime, day: colDay } = fmtCOL(event.event_at)
 
   return (
     <div
       onClick={() => onClick(event)}
       style={{
         display: 'grid',
-        gridTemplateColumns: '48px 16px 1fr auto',
+        gridTemplateColumns: '60px 16px 1fr auto',
         gap: 8,
         alignItems: 'center',
         padding: '6px 8px',
@@ -71,7 +84,10 @@ function EventRow({ event, selected, onClick }) {
         transition: 'background 0.1s',
       }}
     >
-      <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>{timeStr}</span>
+      <div>
+        <div style={{ color: 'var(--text-dim)', fontSize: 11 }}>{colTime}</div>
+        <div style={{ color: 'var(--text-muted)', fontSize: 9, letterSpacing: 0.3 }}>{colDay} COL</div>
+      </div>
       <ImportanceBadge level={event.importance} />
       <div>
         <div style={{ color: isReleased ? 'var(--text-primary)' : 'var(--text-dim)', fontSize: 12 }}>
@@ -110,7 +126,7 @@ export default function CalendarPanel({ onEventSelect, selectedEvent }) {
     try {
       let data
       if (filter.tab === 'upcoming') {
-        data = await api.getUpcoming({ hours: 72, importance: filter.importance, currencies: CURRENCIES })
+        data = await api.getUpcoming({ hours: 120, importance: filter.importance, currencies: CURRENCIES })
       } else {
         data = await api.getRecent({ hours: 72, currencies: CURRENCIES })
       }

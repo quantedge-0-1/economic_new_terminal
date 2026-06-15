@@ -81,6 +81,15 @@ _SERIES_SCALE: dict[str, float] = {
     "CCSA": 0.001,
 }
 
+# Custom release time (ET hour, minute) for series that don't release at the standard 08:30 AM ET
+_SERIES_RELEASE_ET: dict[str, tuple[int, int]] = {
+    "UMCSENT": (10, 0),   # University of Michigan: 10:00 AM ET (not BLS 08:30)
+}
+
+# Monthly series that require the obs month to MATCH the release month exactly.
+# Prevents cross-month stale fills (e.g. April obs should not appear as May actual).
+_OBS_MONTH_STRICT: set[str] = {"UMCSENT"}
+
 # Map display_name → (series_id, transform, yoy_periods, scale) for the actuals scanner
 _NAME_TO_SERIES: dict[str, tuple[str, str, int, float]] = {
     name: (sid, transform, yoy_p, _SERIES_SCALE.get(sid, 1.0))
@@ -182,7 +191,7 @@ class FREDProvider:
                 obs_map[o["date"]] = v
                 obs_dates.append(o["date"])
 
-        # 2. Release dates — derived from obs dates (weekly) or FRED release calendar (monthly)
+        # 2. Release dates — derived from obs dates (weekly/monthly) or FRED release calendar
         if series_id in _OBS_DATE_RELEASE_OFFSET:
             # Weekly series (ICSA, CCSA): FRED release/dates API is unreliable.
             # Reference week ends Saturday; BLS releases on following Thursday (+5 days).
@@ -207,6 +216,13 @@ class FREDProvider:
                     next_rel += timedelta(days=7)
 
             release_dates.sort()
+
+        elif series_id == "UMCSENT":
+            # UMich Consumer Sentiment: FRED release/dates API returns 0 entries.
+            # Preliminary = 2nd Friday of the obs month; Final = 4th Friday.
+            # Both entries use strict month matching — avoids cross-month stale fills.
+            release_dates = _umcsent_release_dates(obs_dates, start_s, end_s)
+
         else:
             # Monthly/quarterly: fetch from FRED release calendar
             try:
@@ -234,13 +250,21 @@ class FREDProvider:
 
         # 3. Build events
         scale = _SERIES_SCALE.get(series_id, 1.0)
+        et_h, et_m = _SERIES_RELEASE_ET.get(series_id, (_RELEASE_ET_HOUR, _RELEASE_ET_MIN))
         events: list[dict] = []
         for rel_date in release_dates:
-            event_at = _to_utc_datetime(rel_date)
+            event_at = _to_utc_datetime(rel_date, et_h, et_m)
 
-            # Find the observation whose reference period is closest to (and on/before) this release date
-            matching_date = _latest_obs_before(obs_dates, rel_date)
-            actual_raw    = obs_map.get(matching_date) if matching_date else None
+            if series_id in _OBS_MONTH_STRICT:
+                # Month-exact match: obs month must equal release month to avoid stale cross-month fills
+                rel_dt_obj = datetime.strptime(rel_date, "%Y-%m-%d")
+                matching_date, actual_raw = _obs_for_month(
+                    obs_dates, obs_map, rel_dt_obj.year, rel_dt_obj.month
+                )
+            else:
+                # Standard: latest obs on or before the release date
+                matching_date = _latest_obs_before(obs_dates, rel_date)
+                actual_raw    = obs_map.get(matching_date) if matching_date else None
 
             # Compute transformed actual value and "previous"
             actual, previous = _apply_transform(
@@ -253,11 +277,15 @@ class FREDProvider:
                 if previous is not None: previous = round(previous * scale, 3)
 
             is_future = event_at > datetime.now(UTC)
-            # For future releases the matched observation is the previous period's
-            # data, not the upcoming release — clear it to avoid false actuals
+            # For future releases clear actuals — the matched obs is a prior period's data
             if is_future:
                 actual   = None
                 previous = None
+
+            # For strict-month series: skip past events without data (prevents phantom "pending" rows
+            # for months where FRED hasn't published yet — _scan_and_fill_actuals handles them later)
+            if series_id in _OBS_MONTH_STRICT and not is_future and actual is None:
+                continue
 
             status = "pending" if is_future or actual is None else "released"
 
@@ -355,15 +383,18 @@ def _parse_val(raw) -> float | None:
         return None
 
 
-def _to_utc_datetime(date_str: str) -> datetime:
-    """Convert a FRED release date to UTC at the standard US economic data release time (08:30 ET).
+def _to_utc_datetime(
+    date_str: str,
+    et_hour: int = _RELEASE_ET_HOUR,
+    et_min:  int = _RELEASE_ET_MIN,
+) -> datetime:
+    """Convert a FRED release date to UTC at the given ET time (default 08:30 ET).
 
     Applies DST: EDT (UTC-4) from March 2nd Sunday through November 1st Sunday,
-    EST (UTC-5) the rest of the year. This ensures summer releases (e.g. CPI in June)
-    are stored at 12:30 UTC (08:30 EDT) rather than the incorrect 13:30 UTC (08:30 EST).
+    EST (UTC-5) the rest of the year. Pass et_hour/et_min for series that release
+    at a non-standard time (e.g. UMCSENT at 10:00 AM ET).
     """
     y, m, d = (int(p) for p in date_str.split("-"))
-    # DST boundaries for year y
     march1    = datetime(y, 3, 1)
     dst_start = march1 + timedelta(days=(6 - march1.weekday()) % 7 + 7)  # 2nd Sunday March
     nov1      = datetime(y, 11, 1)
@@ -371,7 +402,7 @@ def _to_utc_datetime(date_str: str) -> datetime:
     date_only = datetime(y, m, d).date()
     et_offset = timedelta(hours=-4) if dst_start.date() <= date_only < dst_end.date() else timedelta(hours=-5)
     et_tz     = timezone(et_offset)
-    return datetime(y, m, d, _RELEASE_ET_HOUR, _RELEASE_ET_MIN, tzinfo=et_tz).astimezone(UTC)
+    return datetime(y, m, d, et_hour, et_min, tzinfo=et_tz).astimezone(UTC)
 
 
 def _latest_obs_before(obs_dates: list[str], cutoff: str) -> str | None:
@@ -447,3 +478,69 @@ def _apply_transform(
         return actual, previous
 
     return current_raw, None
+
+
+# ── UMich Consumer Sentiment helpers ──────────────────────────────────────────
+
+def _nth_friday(year: int, month: int, n: int) -> datetime:
+    """Return the Nth Friday of a given month (n=1 for first Friday, n=2 for second, etc.)."""
+    first = datetime(year, month, 1)
+    days_until_friday = (4 - first.weekday()) % 7   # Monday=0, Friday=4
+    return first + timedelta(days=days_until_friday) + timedelta(weeks=n - 1)
+
+
+def _umcsent_release_dates(obs_dates: list[str], start_s: str, end_s: str) -> list[str]:
+    """
+    UMich Consumer Sentiment release schedule (FRED release/dates API is broken for release_id=91):
+      • Preliminary — 2nd Friday of the obs month (most market-moving)
+      • Final       — 4th Friday of the obs month (FRED typically updates here)
+    Generates dates from existing obs months + projects forward up to 6 months.
+    """
+    release_dates: list[str] = []
+    seen: set[tuple[int, int]] = set()
+
+    for d in obs_dates:
+        dt = datetime.strptime(d, "%Y-%m-%d")
+        key = (dt.year, dt.month)
+        if key in seen:
+            continue
+        seen.add(key)
+        for week_n in (2, 4):   # 2nd Friday = preliminary, 4th Friday = final
+            rel = _nth_friday(dt.year, dt.month, week_n).strftime("%Y-%m-%d")
+            if start_s <= rel <= end_s:
+                release_dates.append(rel)
+
+    # Project future months beyond the last known observation
+    if obs_dates:
+        last_dt = datetime.strptime(obs_dates[-1], "%Y-%m-%d")
+        y, m = last_dt.year, last_dt.month
+        for _ in range(12):
+            m += 1
+            if m > 12:
+                m, y = 1, y + 1
+            if (y, m) in seen:
+                continue
+            seen.add((y, m))
+            fri2 = _nth_friday(y, m, 2)
+            if fri2.strftime("%Y-%m-%d") > end_s:
+                break
+            for week_n in (2, 4):
+                rel = _nth_friday(y, m, week_n).strftime("%Y-%m-%d")
+                if start_s <= rel <= end_s:
+                    release_dates.append(rel)
+
+    return sorted(release_dates)
+
+
+def _obs_for_month(
+    obs_dates: list[str],
+    obs_map: dict[str, float],
+    year: int,
+    month: int,
+) -> tuple[str | None, float | None]:
+    """Return (obs_date, value) for the observation whose year/month exactly matches."""
+    for d in obs_dates:
+        dt = datetime.strptime(d, "%Y-%m-%d")
+        if dt.year == year and dt.month == month:
+            return d, obs_map[d]
+    return None, None
