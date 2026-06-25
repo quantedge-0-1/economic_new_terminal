@@ -2,13 +2,12 @@
 RSS news provider — fetches and parses multiple economic/financial RSS feeds.
 
 Feeds (all free, no API key):
-  Reuters Business    https://feeds.reuters.com/reuters/businessNews
-  Reuters Markets     https://feeds.reuters.com/reuters/UKMarkets (or similar)
+  BBC Business        https://feeds.bbci.co.uk/news/business/rss.xml
+  NY Times Economy    https://rss.nytimes.com/services/xml/rss/nyt/Economy.xml
+  Yahoo Finance       https://finance.yahoo.com/rss/topfinstories
+  Kitco News (gold)   https://www.kitco.com/rss/KitcoNews.rss
   MarketWatch         https://feeds.marketwatch.com/marketwatch/marketpulse/
-  FT Economy          https://www.ft.com/rss/home/uk  (limited)
-  WSJ Economy         https://feeds.content.dowjones.io/public/rss/mw_topstories
-  Investing.com       https://www.investing.com/rss/news_25.rss  (general news)
-  Bloomberg (limited) https://feeds.bloomberg.com/markets/news.rss
+  White House         https://www.whitehouse.gov/briefing-room/speeches-remarks/feed/
 """
 
 from __future__ import annotations
@@ -25,11 +24,12 @@ from app.core.logger import get_logger
 logger = get_logger(__name__)
 
 _FEEDS = [
-    ("reuters_business",  "https://feeds.reuters.com/reuters/businessNews"),
-    ("reuters_markets",   "https://feeds.reuters.com/reuters/UKmarkets"),
+    ("bbc_business",      "https://feeds.bbci.co.uk/news/business/rss.xml"),
+    ("nytimes_economy",   "https://rss.nytimes.com/services/xml/rss/nyt/Economy.xml"),
+    ("yahoo_finance",     "https://finance.yahoo.com/rss/topfinstories"),
+    ("kitco_news",        "https://www.kitco.com/rss/KitcoNews.rss"),
     ("marketwatch",       "https://feeds.marketwatch.com/marketwatch/marketpulse/"),
-    ("investing_general", "https://www.investing.com/rss/news_301.rss"),
-    ("ft_markets",        "https://www.ft.com/rss/home/uk"),
+    ("whitehouse",        "https://www.whitehouse.gov/briefing-room/speeches-remarks/feed/"),
 ]
 
 # Keywords that indicate gold/macro relevance
@@ -40,6 +40,9 @@ _RELEVANCE_KEYWORDS = [
     "central bank", "monetary policy", "ecb", "boe", "boj",
     "commodity", "precious metal", "silver", "oil",
     "geopolitical", "sanctions", "ukraine", "middle east",
+    # Presidential / White House — high USD/Gold impact
+    "trump", "president", "executive order", "tariff", "trade war",
+    "white house", "oval office", "sanctions", "executive action",
 ]
 
 # Sentiment keywords (positive → bullish gold)
@@ -77,13 +80,17 @@ def _parse_date(date_str: str | None) -> datetime | None:
 
 def _infer_category(title: str) -> str:
     low = title.lower()
+    if any(k in low for k in ["president", "trump", "white house", "executive order", "oval office"]):
+        return "political"
     if any(k in low for k in ["fed", "fomc", "central bank", "rate decision", "ecb", "boe"]):
         return "central_bank"
     if any(k in low for k in ["inflation", "cpi", "pce", "ppi"]):
         return "inflation"
     if any(k in low for k in ["payroll", "employment", "unemployment", "jobs"]):
         return "employment"
-    if any(k in low for k in ["geopolit", "war", "sanctions", "military", "conflict"]):
+    if any(k in low for k in ["tariff", "trade war", "trade deal", "sanctions"]):
+        return "geopolitical"
+    if any(k in low for k in ["geopolit", "war", "military", "conflict"]):
         return "geopolitical"
     if any(k in low for k in ["gold", "silver", "oil", "commodity"]):
         return "commodity"

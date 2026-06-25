@@ -186,20 +186,47 @@ async def _calendar_refresh_loop() -> None:
         await asyncio.sleep(300)  # Every 5 minutes
 
 
-_ws_task: asyncio.Task | None = None
+async def _news_refresh_loop() -> None:
+    """
+    Background task: auto-refresh news from RSS + GDELT every 30 minutes.
+    Without this loop, /api/v1/news/latest returns 0 articles (manual refresh only).
+    """
+    from app.db.session import db_session
+    from app.services.news.engine import NewsEngine
+
+    engine = NewsEngine()
+    await asyncio.sleep(45)  # Stagger startup: after calendar init
+    while True:
+        try:
+            async with db_session() as db:
+                result = await engine.refresh(db)
+                logger.info(
+                    "[NewsRefresh] inserted=%d alerts=%d total=%d",
+                    result["inserted"], result["alerts"], result["total"],
+                )
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.warning("[NewsRefresh] error: %s", exc)
+        await asyncio.sleep(1800)  # Every 30 minutes
+
+
+_ws_task:   asyncio.Task | None = None
+_news_task: asyncio.Task | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _filler_task, _calendar_task, _price_task, _ws_task
+    global _filler_task, _calendar_task, _price_task, _ws_task, _news_task
     logger.info("Starting Economic News Terminal...")
     await init_db()
     _filler_task   = asyncio.create_task(_memory_filler_loop())
     _calendar_task = asyncio.create_task(_calendar_refresh_loop())
     _price_task    = asyncio.create_task(_price_poller_loop())
     _ws_task       = asyncio.create_task(_ws_broadcast_loop())
+    _news_task     = asyncio.create_task(_news_refresh_loop())
     yield
-    for task in (_filler_task, _calendar_task, _price_task, _ws_task):
+    for task in (_filler_task, _calendar_task, _price_task, _ws_task, _news_task):
         if task and not task.done():
             task.cancel()
     logger.info("Shutdown complete")

@@ -118,7 +118,7 @@ async def generate_daily_briefing(
         msg = await claude_with_retry(
             client,
             model=settings.ai_model,
-            max_tokens=400,
+            max_tokens=700,
             system=_SYSTEM,
             messages=[{"role": "user", "content": user_prompt}],
         )
